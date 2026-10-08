@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Store Coordinate Batch</title><link rel="stylesheet" href="dashboard.css"></head>
+<body><main>
+<h1>Store Coordinate Batch <span class="ver">for Chrome · v4.9</span></h1>
+
+<section>
+  <h2>1. Load your LibreOffice sheet</h2>
+  <p class="hint">Choose the .ods file you work in (a .csv or .xlsx also works). Required: <b>Store code</b>. Latitude and Longitude are required only for coordinate changes. Business name, Street address (+ line 2 and line 3), Locality, Administrative area and Postal code are used for the Business Manager check. Your original file is never changed.</p>
+  <input type="file" id="file" accept=".ods,.csv,.tsv,.xlsx">
+  <div id="sheetRow" hidden><label>Sheet: <select id="sheet"></select></label> <span id="detected" class="hint"></span></div>
+  <ul id="problems" class="problems"></ul>
+  <button id="import" disabled>Load into queue</button>
+</section>
+
+<section>
+  <h2>2. Run</h2>
+  <p class="hint">Sign in at <b>business.google.com</b>, open your business list in this Chrome window, close any open editor, then start. The extension switches to that tab. Keep it in front, leave the window size and zoom alone, and do not click or scroll in it while it works. Allow location for business.google.com if Chrome asks.</p>
+  <label for="runMode"><b>Choose run option</b></label>
+  <select id="runMode">
+    <option value="coords_address">1) Set coordinates + correct address if not matched</option>
+    <option value="coords_check">2) Only set latitude / longitude + check address match</option>
+    <option value="address_only">3) Only correct address details (no coordinate changes)</option>
+  </select>
+  <p class="hint" id="modeHint">Address details include street address lines, locality, state and PIN code. Business names are checked only. <b>Option 2 visits each ATM once: checks its address, saves coordinates, then finishes. No automatic second pass.</b> Options 1 and 3 finish updates, then run a read-only check pass. Delayed display updates never trigger another Save.</p>
+  <p class="hint">Stores that need verification, will not open, or are marked duplicate are <b>skipped</b> and listed in the Excel file. If one store code belongs to several businesses, <b>all of them</b> are processed and marked in the Excel file.</p>
+  <p class="hint">Use the floating Stop / Start button on the Business Manager page to suspend and resume the current ATM. Switching tabs pauses automatically; return to that tab and press Start.</p>
+  <div class="buttons">
+    <button id="startRun">Start selected option</button>
+    <button id="startCheck" class="secondary">Re-check all ATMs (read-only)</button>
+    <button id="pause" class="secondary">Pause after current store</button>
+    <button id="stop" class="secondary">Stop at current ATM</button>
+  </div>
+  <div id="status" role="status">Ready</div>
+  <div id="counts"></div>
+</section>
+
+<section>
+  <h2>3. Progress</h2>
+  <div class="tablewrap"><table id="table"><thead><tr>
+    <th>Sheet row</th><th>Store</th><th>Coordinates</th><th>Coordinate status</th><th>Business name</th><th>Address</th><th>Locality</th><th>State</th><th>PIN</th><th>Details update</th><th>Notes</th><th></th>
+  </tr></thead><tbody id="rows"></tbody></table></div>
+  <p id="empty" class="hint">Nothing loaded yet.</p>
+</section>
+
+<section>
+  <h2>4. Download the result as Excel</h2>
+  <p class="hint">One click gives you <b>yourfile_updated.xlsx</b>: all your original columns plus Run option, Coordinate status, the five checks (Business name check, Address check…), <b>Address / Locality / Admin area / Postal code update</b> (what was changed and the old value), Update summary, Skip reason and Shared store ID. Store IDs that belong to several businesses are marked in blue and listed one per business on a second sheet. Your original file is never changed.</p>
+  <div class="buttons">
+    <button id="downloadXlsx">Download Excel (.xlsx)</button>
+    <button id="export" class="secondary">Download log as CSV</button>
+    <button id="clearChecks" class="secondary">Clear check results</button>
+    <button id="clear" class="danger">Clear queue and history</button>
+  </div>
+  <div id="writeMsg" class="hint"></div>
+</section>
+</main>
+<script src="runpolicy.js"></script>
+<script src="sheetio.js"></script>
+<script src="xlsxout.js"></script>
+<script src="dashboard.js"></script>
+</body></html>
