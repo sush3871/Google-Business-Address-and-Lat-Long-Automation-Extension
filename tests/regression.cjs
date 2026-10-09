@@ -175,5 +175,38 @@ await test('Excel export includes run mode and third-line mismatch',async()=>{
  const result=await h.c.XlsxOut.build({name:'Test',fileName:'input.csv',headerRow:0,map:{store:0,address:1},matrix:[['Store code','Street address'],['001','Road']]},[{store:'001',sheetRow:2,address:'Road',status:'queued',lastRunMode:'address_only',checks:{address:'mismatch'},targets:[]}]);
  assert.ok(result.blob.size>1000);fs.writeFileSync(path.join(root,'tests','result-test.xlsx'),Buffer.from(await result.blob.arrayBuffer()));
 });
+await test('background run opens an unfocused window and returns focus to the dashboard',async()=>{
+ const h=harness(),log=[];
+ h.c.chrome.windows.create=async o=>{log.push(['create',o]);return {id:77,tabs:[{id:9}]};};
+ h.c.chrome.windows.update=async(id,o)=>{log.push(['update',id,o]);};
+ h.c.chrome.tabs.query=async()=>[{id:1,url:'https://business.google.com/locations',lastAccessed:1}];
+ const t=await h.c.findBusinessTab(5);
+ assert.equal(t,9);
+ const created=log.find(x=>x[0]==='create')[1];
+ assert.equal(created.focused,false);assert.equal(created.url,'https://business.google.com/locations');
+ assert.deepEqual(JSON.parse(JSON.stringify(log.find(x=>x[0]==='update'))),['update',5,{focused:true}]);
+ assert.equal(h.session.runWindow.windowId,77);
+ // a second start reuses the same window instead of opening another
+ log.length=0;assert.equal(await h.c.findBusinessTab(5),9);assert.equal(log.length,0);
+});
+await test('focus emulation is enabled on attach so a hidden window keeps working',async()=>{
+ const h=harness();let tabId;
+ h.c.chrome.debugger.attach=async t=>{tabId=t.tabId;};
+ await h.c.attach(4);
+ assert.ok(h.calls.includes('Emulation.setFocusEmulationEnabled'));
+});
+await test('another window gaining focus does not suspend the run',async()=>{
+ const h=harness();h.eval("running=true;STORE='ATM-A';");await h.c.beginControl(1,'coords_check');
+ let done=false;const p=h.c.debugCommand({tabId:1},'Input.insertText',{text:'x'}).then(()=>done=true);
+ await p;assert.equal(done,true);assert.notEqual(h.session.runSuspended,true);
+});
+await test('background window closes only after a complete run',async()=>{
+ const h=harness(),removed=[];
+ h.c.chrome.windows.remove=async id=>{removed.push(id);};
+ h.session.runWindow={tabId:9,windowId:77};h.data.runCheckpoint={complete:false};
+ await h.c.closeRunWindowIfDone();assert.equal(removed.length,0);assert.ok(h.session.runWindow);
+ h.data.runCheckpoint={complete:true};
+ await h.c.closeRunWindowIfDone();assert.deepEqual(removed,[77]);assert.equal(h.session.runWindow,undefined);
+});
 console.log(`${passed} regression tests passed.`);
 })().catch(e=>{console.error(e);process.exitCode=1});

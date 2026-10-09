@@ -118,10 +118,10 @@ $('startRun').onclick = async () => {
     const action=mode==='coords_address'?'set coordinates and correct mismatched address details':
       mode==='coords_check'?'set coordinates and check address details without editing them':'correct mismatched address details without changing coordinates';
     if(!confirm(`Process ${pending.length} store(s): ${action}? Business names will not be changed.`)) return;
-    await send('start',{mode}); say('Started. Switching to your business tab…');
+    await send('start',{mode}); say('Started in a separate background Chrome window. You can keep working in other windows - this dashboard shows the progress.');
   } catch(e) {fail(e);}
 };
-$('startCheck').onclick = async () => { try { await send('start', { mode: 'check' }); say('Checking started. Switching to your business tab…'); } catch (e) { fail(e); } };
+$('startCheck').onclick = async () => { try { await send('start', { mode: 'check' }); say('Checking started in a separate background Chrome window. You can keep working in other windows.'); } catch (e) { fail(e); } };
 $('pause').onclick = () => send('pause').catch(fail);
 $('stop').onclick = () => send($('stop').dataset.action||'stop').catch(fail);
 

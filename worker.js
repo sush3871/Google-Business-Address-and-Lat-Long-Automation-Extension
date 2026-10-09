@@ -12,7 +12,7 @@ let suspended=false, resumeWaiters=[], activeRunTab=null, activeRunWindow=null;
 async function suspendRun(reason='Stopped by you') {
   if(!running || suspended) return;
   suspended=true;pausedAt=Date.now();
-  await chrome.storage.session.set({runSuspended:true,status:reason+' — '+(STORE||'current business')+'. Press Start on the business page to continue.'});
+  await chrome.storage.session.set({runSuspended:true,status:reason+' — '+(STORE||'current business')+'. Press Start / resume in the dashboard (or on the page in the background window) to continue.'});
 }
 async function runGate() {
   if(!running || activeRunTab===null) return;
@@ -25,8 +25,8 @@ async function runGate() {
 async function resumeRun() {
   if(!running) throw new Error('This run is no longer active. Use the dashboard to resume the saved business.');
   const tab=await chrome.tabs.get(activeRunTab);
-  const win=await chrome.windows.get(tab.windowId);
-  if(!tab.active || !win.focused) throw new Error('Return to the Business Manager tab, then press Start.');
+  // The run lives in its own background window, so only the tab itself must still be the active tab of that window.
+  if(!tab.active) throw new Error('Return to the Business Manager tab in the background window, then press Start.');
   pausedDuration+=Date.now()-pausedAt;suspended=false;
   await chrome.storage.session.set({runSuspended:false,status:'Resuming '+(STORE||'current business')+' from the stopped step…'});
   resumeWaiters.splice(0).forEach(resolve=>resolve());
@@ -43,6 +43,15 @@ async function checkpoint(phase,index,store,target=0) {
   await chrome.storage.session.set({currentStore:store});
 }
 let activeMode='coords_check';
+// The background window is closed only after a COMPLETE run. A paused / stopped / failed run keeps it so it can be resumed.
+async function closeRunWindowIfDone() {
+  const cp=(await chrome.storage.local.get('runCheckpoint')).runCheckpoint;
+  if(!cp?.complete) return;
+  const {runWindow}=await chrome.storage.session.get('runWindow');
+  if(!runWindow) return;
+  await chrome.storage.session.remove('runWindow');
+  try {await chrome.windows.remove(runWindow.windowId);} catch {}
+}
 async function finishControl() {
   suspended=false;activeRunTab=null;activeRunWindow=null;
   resumeWaiters.splice(0).forEach(resolve=>resolve());
@@ -311,6 +320,8 @@ async function attach(tabId) {
     await chrome.debugger.attach({tabId},'1.3');
     await chrome.storage.session.set({attached:tabId});
   }
+  // Background run: make the page behave as if its window has focus while you work in another window.
+  try {await chrome.debugger.sendCommand({tabId},'Emulation.setFocusEmulationEnabled',{enabled:true});} catch {}
 }
 async function detach() {
   const {attached} = await chrome.storage.session.get('attached');
@@ -1199,7 +1210,7 @@ async function runBatch(tabId,opts={coords:true,details:false}) {
   } catch(error) {
     if(rows && index>=0 && index<rows.length) await recordRowError(rows,index,error,ctx);
     await tell('Paused: '+error.message);
-  } finally {clearInterval(ka);await detach();running=false;await finishControl();await chrome.storage.session.set({batchRunning:false,finishedAt:Date.now()});}
+  } finally {clearInterval(ka);await detach();running=false;await finishControl();await chrome.storage.session.set({batchRunning:false,finishedAt:Date.now()});await closeRunWindowIfDone();}
 }
 
 // Pass 2: read profile fields only. Never call processTarget/detailStep/Save/map controls.
@@ -1277,17 +1288,38 @@ async function runChecks(tabId,startIndex=0,startTarget=0) {
     if(!pauseRequested && !cancelRequested) await chrome.storage.local.set({runCheckpoint:{complete:true}});
     await tell(pauseRequested||cancelRequested?'Read-only checks paused. Use Re-check all ATMs to repeat checks without saving.':'Read-only checks finished. No changes saved. Download the Excel result.');
   } catch(error) {await tell('Read-only checks paused: '+error.message);}
-  finally {clearInterval(ka);await detach();running=false;await finishControl();await chrome.storage.session.set({batchRunning:false,finishedAt:Date.now()});}
+  finally {clearInterval(ka);await detach();running=false;await finishControl();await chrome.storage.session.set({batchRunning:false,finishedAt:Date.now()});await closeRunWindowIfDone();}
 }
 
-async function findBusinessTab() {
-  const tabs=await chrome.tabs.query({url:'https://business.google.com/*'});
-  if(!tabs.length) throw new Error('Open business.google.com (your signed-in business list) in this Chrome window first.');
-  tabs.sort((a,b)=>(b.lastAccessed||0)-(a.lastAccessed||0));
-  const tab=tabs[0];
-  await chrome.tabs.update(tab.id,{active:true});
-  await chrome.windows.update(tab.windowId,{focused:true});
-  await wait(800);
+// The run happens in its OWN Chrome window, opened behind your work (never focused), so your own windows and tabs stay free.
+// A paused run's window is reused when it is still open. Your own Business Manager tab is never driven or changed.
+async function findBusinessTab(callerWindowId) {
+  const {runWindow}=await chrome.storage.session.get('runWindow');
+  if(runWindow) {
+    try {
+      const old=await chrome.tabs.get(runWindow.tabId);
+      if(new URL(old.url).hostname==='business.google.com') return old.id;
+    } catch {}
+    await chrome.storage.session.remove('runWindow');
+  }
+  const mine=(await chrome.tabs.query({url:'https://business.google.com/*'})).sort((a,b)=>(b.lastAccessed||0)-(a.lastAccessed||0));
+  const url=mine.length?mine[0].url:'https://business.google.com/';
+  const win=await chrome.windows.create({url,type:'normal',focused:false,width:1280,height:900});
+  const tab=win.tabs?.[0];
+  if(!tab) throw new Error('Chrome did not open the background window.');
+  await chrome.storage.session.set({runWindow:{tabId:tab.id,windowId:win.id}});
+  if(callerWindowId) try {await chrome.windows.update(callerWindowId,{focused:true});} catch {} // give focus straight back to the dashboard
+  for(let i=0;i<60;i++) {
+    const t=await chrome.tabs.get(tab.id);
+    if(t.status==='complete') break;
+    await delay(500);
+  }
+  await delay(2500);
+  const now=await chrome.tabs.get(tab.id);
+  if(new URL(now.url).hostname!=='business.google.com') {
+    try {await chrome.windows.update(win.id,{focused:true});} catch {}
+    throw new Error('The background window is not signed in to Business Manager. Sign in there (it is open now), then press Start again.');
+  }
   return tab.id;
 }
 const DASH=chrome.runtime.getURL('dashboard.html');
@@ -1308,13 +1340,12 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     }
     if(page && activeRunTab!==null && sender.tab.id!==activeRunTab) throw new Error('Controls belong to the tab running this batch.');
     if(message.action==='resume' && running) {
-      if(dashboard && activeRunTab!==null) {await chrome.tabs.update(activeRunTab,{active:true});await chrome.windows.update(activeRunWindow,{focused:true});}
       await resumeRun();return {resumed:true};
     }
     const idle=()=>{if(running) throw new Error('Pause/stop and wait for the run to finish first.');};
     if(message.action==='start' || message.action==='resume') {
       if(running) throw new Error('Batch already running.');
-      const tabId=await findBusinessTab();
+      const tabId=await findBusinessTab(sender.tab?.windowId);
       const cp=(await chrome.storage.local.get('runCheckpoint')).runCheckpoint;
       const mode=message.action==='resume'?cp?.mode:message.mode;
       if(!mode) throw new Error('Load a sheet and choose a mode in the dashboard first.');
@@ -1380,7 +1411,5 @@ chrome.tabs.onActivated?.addListener(info=>{
   if(running && activeRunTab!==null && info.windowId===activeRunWindow && info.tabId!==activeRunTab)
     void suspendRun('Paused because you changed tabs');
 });
-chrome.windows.onFocusChanged?.addListener(windowId=>{
-  if(running && activeRunWindow!==null && windowId!==activeRunWindow)
-    void suspendRun('Paused because the business window lost focus');
-});
+// Window focus is deliberately NOT watched any more: the run is meant to continue while you use other windows.
+// Closing the background window by hand ends the run (the debugger detaches), see chrome.debugger.onDetach.
