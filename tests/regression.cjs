@@ -55,7 +55,7 @@ for(const mode of ['coords_address','coords_check','address_only']) await test(m
  click=async(_,kind)=>{effects.push(kind);if(kind==='adjust') adjustOpen=true;if(kind==='done') adjustOpen=false;return true;};
  candidates=async(_,kind)=>kind==='done'?adjustOpen:kind==='save';
  detailStep=async(_,row,tg,key,pending)=>{effects.push('write:'+key);tg.detail[key]='pending';pending.push(key);};
- nameStep=async()=>{throw Error('Business name must never be edited');};
+ nameStep=async(_,row,tg)=>{effects.push('write:name');tg.detail.name='updated';};
  waitSaved=async()=>({cleared:true,messages:[]});
  globalThis.rows=[{store:'001',status:'queued',latitude:19,longitude:73,address:'Road',targets:[{coordDone:false,detailsDone:false,detail:{},was:{},notes:{}}]}];
  globalThis.exp={summaries:['Business'],cols:[],biz:[]};
@@ -66,7 +66,9 @@ for(const mode of ['coords_address','coords_check','address_only']) await test(m
  assert.equal(h.calls.includes('Emulation.setGeolocationOverride'),mode!=='address_only');
  assert.equal(effects.includes('adjust'),mode!=='address_only');
  assert.equal(effects.includes('locate'),mode!=='address_only');
- assert.equal(effects.filter(x=>x==='save').length,1);
+ assert.equal(effects.filter(x=>x==='save').length,mode==='coords_address'?2:1);
+ if(mode==='coords_address') assert.ok(effects.indexOf('save')<effects.indexOf('adjust'));
+ assert.equal(effects.includes('write:name'),mode!=='coords_check');
 });
 await test('overlong address verification does not crash',async()=>{
  const h=harness();h.eval(`guard=async()=>{};openEditorFor=async()=>true;closeEditor=async()=>{};clickTabNamed=async()=>true;click=async()=>true;readNameDisplayed=async()=>null;readField=async()=>null;findFieldValue=async()=> 'Pune';`);
@@ -86,7 +88,7 @@ await test('interrupted address Save leaves durable review marker',async()=>{
 });
 await test('stale displayed values do not requeue a saved address',async()=>{
  const h=harness();h.eval(`guard=async()=>{};openEditorFor=async()=>true;closeEditor=async()=>{};clickTabNamed=async()=>true;click=async()=>true;readNameDisplayed=async()=> 'Old name';readField=async()=> '';findFieldValue=async()=> 'Old address';`);
- const detail=Object.fromEntries(['address','address2','address3','locality','admin','postal'].map(k=>[k,'updated']));
+ const detail=Object.fromEntries(['name','address','address2','address3','locality','admin','postal'].map(k=>[k,'updated']));
  const row={store:'001',status:'queued',address:'New address',name:'New name',targets:[{detailsDone:true,detail}],detailsDone:true};
  await h.c.verifyTarget(1,row,0,{},true);
  assert.equal(row.targets[0].verify.status,'mismatch');assert.equal(row.targets[0].detailsDone,true);
@@ -207,6 +209,50 @@ await test('background window closes only after a complete run',async()=>{
  await h.c.closeRunWindowIfDone();assert.equal(removed.length,0);assert.ok(h.session.runWindow);
  h.data.runCheckpoint={complete:true};
  await h.c.closeRunWindowIfDone();assert.deepEqual(removed,[77]);assert.equal(h.session.runWindow,undefined);
+});
+await test('old address completion without a name result is eligible for name repair',()=>{
+ const h=harness(), detail=Object.fromEntries(['address','address2','address3','locality','admin','postal'].map(k=>[k,'updated']));
+ const row={store:'001',status:'submitted',detailsDone:true,targets:[{detailsDone:true,detail}]};
+ assert.equal(h.c.RunPolicy.needs(row,h.c.RunPolicy.options('coords_address')).details,true);
+ row.targets[0].detail.name='updated';
+ assert.equal(h.c.RunPolicy.needs(row,h.c.RunPolicy.options('coords_address')).details,false);
+});
+await test('name save is durably marked before clicking and clears only after completion',async()=>{
+ const h=harness();h.eval(`clickTabNamed=async()=>true;readNameDisplayed=async()=> 'Old Name';readField=async()=> 'Old Name';setField=async()=>({ok:true});guard=async()=>{};ensureForeground=async()=>{};waitSaved=async()=>({cleared:true});`);
+ const rows=[{store:'A',targets:[{detail:{},notes:{},was:{}}]}];let saves=0;
+ h.c.clickSave=async()=>{saves++;assert.equal(h.data.batchRows[0].detailsReview,true);assert.equal(h.data.batchRows[0].targets[0].detail.name,'review');return true;};
+ await h.c.nameStep(1,{name:'New Name'},rows[0].targets[0],rows,0);
+ assert.equal(saves,1);assert.equal(h.data.batchRows[0].detailsReview,false);assert.equal(rows[0].targets[0].detail.name,'updated');
+ await h.c.nameStep(1,{name:'New Name'},rows[0].targets[0],rows,0);assert.equal(saves,1);
+});
+await test('interrupted business name save cannot be automatically retried',async()=>{
+ const h=harness();h.eval(`clickTabNamed=async()=>true;readNameDisplayed=async()=> 'Old';readField=async()=> 'Old';setField=async()=>({ok:true});guard=async()=>{};ensureForeground=async()=>{};clickSave=async()=>true;waitSaved=async()=>{throw Error('Disconnected');};`);
+ const rows=[{store:'A',targets:[{detail:{},notes:{},was:{}}]}];
+ await assert.rejects(h.c.nameStep(1,{name:'New'},rows[0].targets[0],rows,0),/Disconnected/);
+ assert.equal(h.data.batchRows[0].detailsReview,true);
+ assert.equal(h.c.RunPolicy.needs(h.data.batchRows[0],h.c.RunPolicy.options('address_only')).details,false);
+});
+await test('coordinate readback waits for stability and computes actual distance',async()=>{
+ const h=harness();let calls=0;
+ h.c.readPage=async()=>{calls++;return [{result:{count:1,latitude:19,longitude:73}}];};
+ const c=await h.c.readSavedCoordinates(1,{latitude:19,longitude:73});
+ assert.equal(calls,3);assert.equal(c.status,'match');assert.equal(c.distance,0);
+ const other=await h.c.readSavedCoordinates(1,{latitude:20,longitude:73});
+ assert.equal(other.status,'mismatch');assert.ok(other.distance>100000);
+});
+await test('missing or ambiguous coordinate readback never copies requested coordinates',async()=>{
+ const h=harness();h.c.readPage=async()=>[];
+ const c=await h.c.readSavedCoordinates(1,{latitude:19,longitude:73});
+ assert.equal(c.status,'unconfirmed');assert.equal(c.latitude,undefined);
+ h.c.readPage=async()=>[1,2].map(()=>({result:{count:1,latitude:19,longitude:73}}));
+ assert.equal((await h.c.readSavedCoordinates(1,{latitude:19,longitude:73})).status,'unconfirmed');
+ const cols=h.c.XlsxOut.coordinateCells({targets:[{coordinates:c}]});
+ assert.equal(cols[0],'');assert.equal(cols[1],'');assert.equal(cols[2],'Unconfirmed');
+});
+await test('Excel coordinate columns align with the observed values',async()=>{
+ const h=harness();const values=h.c.XlsxOut.coordinateCells({targets:[{coordinates:{latitude:19.2,longitude:73.4,distance:8.456,status:'mismatch',note:'Read after refresh'}}]});
+ assert.deepEqual(Array.from(values),[19.2,73.4,'MISMATCH',8.46,'Read after refresh']);
+ assert.equal(h.c.XlsxOut.HEADERS.slice(-5)[0],'Saved latitude');
 });
 console.log(`${passed} regression tests passed.`);
 })().catch(e=>{console.error(e);process.exitCode=1});

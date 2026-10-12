@@ -18,14 +18,14 @@
   }
   // Submission state is independent of what Google currently displays.
   function detailsSubmitted(target) {
-    return ['address','address2','address3','locality','admin','postal'].every(
+    return ['name','address','address2','address3','locality','admin','postal'].every(
       key=>['updated','ok','blank'].includes(target.detail?.[key]));
   }
   function needs(row, opts) {
     const eligible=!!row.store && !row.detailsReview && !row.sheetSkip && !['invalid','skipped','reviewed_skip','done_manual'].includes(row.status);
     return {
       coords:eligible && opts.coords && ['queued','error'].includes(row.status) && !coordinateError(row),
-      details:eligible && opts.details && !row.detailsDone && !(row.targets?.filter(t=>!t.skip).length && row.targets.filter(t=>!t.skip).every(t=>t.detailsDone || detailsSubmitted(t)))
+      details:eligible && opts.details && !(row.targets?.filter(t=>!t.skip).length && row.targets.filter(t=>!t.skip).every(t=>detailsSubmitted(t)))
     };
   }
   root.RunPolicy={options, coordinateError, needs, detailsSubmitted};

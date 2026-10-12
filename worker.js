@@ -142,7 +142,7 @@ function inspectUI(kind, commit=false, store, idx=0, value='') {
     for(let n; (n = tw.nextNode());) {
       if(!/^\s*business name\s*(edit)?\s*$/i.test(n.nodeValue)) continue;
       const el = n.parentElement;
-      if(el && visible(el) && !el.closest('input,textarea,select,option,script,style') && !heads.includes(el)) heads.push(el);
+      if(el && visible(el) && !el.closest('input,textarea,select,option,script,style,th,[role="columnheader"]') && !heads.includes(el)) heads.push(el);
     }
     if(heads.length > 1) heads = heads.filter(e => !e.closest('label,mat-label,[class*="label" i],legend')); // an open edit box also prints the words
     if(heads.length !== 1) return null;
@@ -179,6 +179,16 @@ function inspectUI(kind, commit=false, store, idx=0, value='') {
     }
     return {count:1};
   }
+  if(kind === 'coordinatesRead') {
+    const readAxis=rx=>{
+      const els=fieldEls().filter(e=>labelsOf(e).some(l=>rx.test(l)));
+      if(els.length!==1) return null;
+      const text=String(els[0].value ?? els[0].innerText ?? '').trim();
+      return text && /^-?\d+(?:\.\d+)?$/.test(text) ? Number(text) : null;
+    };
+    const latitude=readAxis(/^latitude$/i),longitude=readAxis(/^longitude$/i);
+    return {count:latitude!==null && longitude!==null ? 1:0,latitude,longitude};
+  }
   if(kind === 'dialogText') return {count:0, text:(document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 500)};
   if(kind === 'fieldList') return {count:0, fields:fieldEls().map(e => labelsOf(e)[0] || '(no label)').slice(0,40)};
   if(kind === 'tabs') return {count:0, tabs:[...document.querySelectorAll('[role="tab"]')].filter(visible).map(e => name(e)).filter(Boolean).slice(0,15)};
@@ -204,7 +214,7 @@ function inspectUI(kind, commit=false, store, idx=0, value='') {
     }
     if(els.length !== 1) return {count:els.length};
     const e = els[0], custom = e.tagName !== 'SELECT' && (e.readOnly || e.getAttribute('role') === 'combobox' || !['INPUT','TEXTAREA'].includes(e.tagName));
-    const read = () => (e.tagName === 'SELECT' ? (e.selectedOptions[0]?.text || '') : (e.value !== undefined && e.value !== '' ? e.value : (e.innerText || e.getAttribute('aria-label') || ''))).trim();
+    const read = () => String(e.tagName === 'SELECT' ? (e.selectedOptions[0]?.text || '') : (e.value !== undefined ? e.value : (e.innerText || ''))).trim();
     if(commit === 'point') { e.scrollIntoView({block:'center'}); const r = e.getBoundingClientRect(); return {count:1, point:{x:r.x + r.width / 2, y:r.y + r.height / 2}}; }
     if(commit !== 'set' && commit !== 'open') return {count:1, value:read()};
     if(commit === 'open') { e.scrollIntoView({block:'center'}); e.click(); return {count:1, opened:true}; }
@@ -521,7 +531,7 @@ async function importRows(incoming) {
   const old=new Map(batchRows.map(r=>[r.store,r]));
   const same=(a,b)=>Math.abs(a-b)<1e-9;
   const rows=incoming.map(n=>{
-    const row={...n,policyVersion:'4.7'};
+    const row={...n,policyVersion:'5.1'};
     const h=history[n.store], o=old.get(n.store);
     if(o?.detailsReview) row.detailsReview=true;
     if(row.status==='invalid' || row.sheetSkip) return row;
@@ -532,7 +542,7 @@ async function importRows(incoming) {
     } else if(h) {
       row.note='Coordinates changed since the earlier save (was '+h.latitude+', '+h.longitude+'): queued again.';
     }
-    if(o && ['4.6','4.7'].includes(o.policyVersion) && profileKey(o)===profileKey(row)) Object.assign(row,{checks:o.checks,observed:o.observed,checkedAt:o.checkedAt,checkError:o.checkError,targets:o.targets,sharedCount:o.sharedCount,detailsDone:o.detailsDone,detailsAt:o.detailsAt});
+    if(o && ['4.6','4.7','5.1'].includes(o.policyVersion) && profileKey(o)===profileKey(row)) Object.assign(row,{checks:o.checks,observed:o.observed,checkedAt:o.checkedAt,checkError:o.checkError,targets:o.targets,sharedCount:o.sharedCount,detailsDone:o.detailsDone,detailsAt:o.detailsAt});
     if (row.targets && (!same(o.latitude,n.latitude) || !same(o.longitude,n.longitude))) {
       row.targets=row.targets.map(t=>({...t,coordDone:false}));
     }
@@ -721,9 +731,9 @@ function buildTargets(row,exp) {
   const prev=new Map((row.targets||[]).map(x=>[x.link,x]));
   row.sharedCount=exp.count;
   row.targets=exp.links.map((link,i)=>{
-    const o=prev.get(link)||{},keep=!!o.detailsDone || RunPolicy.detailsSubmitted(o);
+    const o=prev.get(link)||{},keep=RunPolicy.detailsSubmitted(o);
     return {link,n:i+1,shows:oneLine(exp.summaries[i]),skip:'',coordDone:!!o.coordDone,detailsDone:keep,
-      detail:o.detail||{},was:o.was||{},notes:o.notes||{},verify:undefined};
+      detail:o.detail||{},was:o.was||{},notes:o.notes||{},coordinates:o.coordinates,verify:undefined};
   });
 }
 const FIELD_LIST=[['name','business name'],['address','address'],['locality','locality'],['admin','administrative area'],['postal','postal code']];
@@ -813,7 +823,8 @@ async function waitField(tabId,key,ms) {
 }
 // Business name lives in the About tab as plain text; press its pencil to get an edit box, change it, Save.
 // Every stage is written to the notes so the Excel file shows exactly where it stopped. The saved value is confirmed after a page refresh.
-async function nameStep(tabId,row,tg) {
+async function nameStep(tabId,row,tg,rows,index) {
+  if(tg.detail.name==='updated') return;
   const want=String(row.name??'').trim();
   if(!want) {tg.detail.name='blank';return;}
   await clickTabNamed(tabId,'About');
@@ -841,14 +852,20 @@ async function nameStep(tabId,row,tg) {
     if(!r.ok) {reason=r.reason;continue;}
     await guard(tabId);await ensureForeground(tabId);
     await tell(STORE+': saving business name…');
-    if(!await clickSave(tabId)) {reason='Save was not available after entering the name ('+mode+' entry)';continue;}
-    tg.was.name=cur;
+    tg.was.name=cur;tg.detail.name='review';
+    await patchRow(rows,index,{detailsReview:true});
+    if(!await clickSave(tabId)) {
+      tg.detail.name='failed';tg.notes.name='Save button not available';
+      await patchRow(rows,index,{detailsReview:false});
+      throw new Error('Business name Save button not available. No second Save attempted.');
+    }
     const w=await waitSaved(tabId);
     if(!w.cleared) {
       tg.detail.name='review';tg.notes.name='Save is still showing after clicking it. Screen: '+(await dialogSnapshot(tabId));
       throw new Error(STORE+': business name Save did not finish. Review this store; no automatic second Save.');
     }
     tg.detail.name='updated';tg.notes.name='';
+    await patchRow(rows,index,{detailsReview:false});
     await wait(800);
     return; // the page keeps showing the old name until it is refreshed: the refresh check confirms it
   }
@@ -917,14 +934,15 @@ async function detailStep(tabId,row,tg,key,pending,wanted) {
     }
     tg.detail[key]='blank';return; // blank city/state/PIN in the sheet: leave the page alone
   }
-  const cur=await findFieldValue(tabId,key);
+  const cur=await readField(tabId,key);
   if(cur===null) {
     tg.detail[key]='notfound';
     if(!tg.diag) tg.diag='Field not found: '+key+'. Fields visible on screen: '+(await listFields(tabId)||'none');
     return;
   }
   if(ProfileMatch.same(want,cur,SAME_OPTS[key]) || (key==='admin' && ProfileMatch.compare(want,cur,{state:true})==='match')) {tg.detail[key]='ok';return;}
-  const r=await setField(tabId,key,want);
+  let r=await setField(tabId,key,want);
+  if(!r.ok && key!=='admin') r=await typeField(tabId,key,want);
   if(!r.ok) {tg.detail[key]='failed';tg.notes[key]=r.reason;return;}
   tg.was[key]=cur;tg.detail[key]='pending';pending.push(key);
 }
@@ -956,7 +974,8 @@ async function saveDetails(tabId,tg,pending,rows,index) {
 // One business: update details and/or coordinates. Returns 'done' or 'unopened'.
 async function processTarget(tabId,rows,index,t,exp,opts,ctx) {
   const row=rows[index],tg=row.targets[t],pending=[];
-  const doDetails=opts.details && !tg.detailsDone, doCoords=opts.coords && !tg.coordDone;
+  const doDetails=opts.details && !RunPolicy.detailsSubmitted(tg);
+  let doCoords=opts.coords && !tg.coordDone;
   if(!doDetails && !doCoords) return 'done';
   let opened=false;
   try {opened=await openEditorFor(tabId,exp,t,ctx.fresh && t===0);}
@@ -968,11 +987,20 @@ async function processTarget(tabId,rows,index,t,exp,opts,ctx) {
   }
   ctx.fresh=false;
   await guard(tabId);
+  if(doDetails) {
+    await tell(STORE+': checking business name…');
+    await nameStep(tabId,row,tg,rows,index);
+    // A failed name edit can leave unsaved controls. Never carry those into the location save.
+    if(['failed','notfound'].includes(tg.detail.name)) {
+      if(!await discardEdits(tabId)) throw new Error('Could not close the unsuccessful business-name edit.');
+    }
+    await patchRow(rows,index,{});
+  }
   const early=await readEditorFields(tabId);
   await guard(tabId);
   if(!await click(tabId,'location',10000)) throw new Error(STORE+': Location tab not found. Nothing further done.');
   if(t===0) await recordChecks(rows,index,[exp.summaries.join('\n'),early,await readEditorFields(tabId)],exp.cols,exp.biz);
-  const editClicked=await click(tabId,'edit',5000);
+  let editClicked=await click(tabId,'edit',5000);
   if(doDetails) {
     await tell(STORE+': checking address, locality, state and PIN…');
     const plan=addressPlan(row);
@@ -983,16 +1011,30 @@ async function processTarget(tabId,rows,index,t,exp,opts,ctx) {
       for(const [i,key] of ['address','address2','address3'].entries()) await detailStep(tabId,row,tg,key,pending,plan.lines[i]);
     }
     for(const key of ['locality','admin','postal']) await detailStep(tabId,row,tg,key,pending);
-    if(!doCoords && pending.length) {await tell(STORE+': saving address changes…');await saveDetails(tabId,tg,pending,rows,index);}
+    if(pending.length) {
+      await tell(STORE+': saving street address, city, state and PIN before setting the pin…');
+      await saveDetails(tabId,tg,pending,rows,index);
+      // An address save may move a pin that was completed in an earlier run.
+      // Reapply once for this new address submission, never for a stale check.
+      if(opts.coords) {doCoords=true;tg.coordDone=false;}
+      await patchRow(rows,index,{});
+      await wait(5000); // Allow the address-driven map repositioning to finish first.
+      editClicked=false;
+    }
+    const bad=['address','address2','address3','locality','admin','postal'].filter(k=>['failed','notfound','review'].includes(tg.detail[k]));
+    if(bad.length && doCoords) throw new Error('Address fields not completed ('+bad.join(', ')+'). Coordinates were not changed.');
   }
   if(doCoords) {
     await debugCommand({tabId},'Emulation.setGeolocationOverride',GEO);
     await tell(`${STORE}: setting ${row.latitude}, ${row.longitude}…`);
-    if(!editClicked) await click(tabId,'edit',5000);
+    if(!editClicked) {
+      await click(tabId,'location',5000);
+      editClicked=await click(tabId,'edit',5000);
+    }
     await click(tabId,'adjust',5000);
     if(!await candidates(tabId,'done')) throw new Error('Adjust map is not open.');
     if(!await click(tabId,'locate',5000)) throw new Error('Current-location control not found. No Save.');
-    await wait(3500);
+    await wait(5000);
     ctx.calibration=await nudge(tabId,ctx.calibration);
     await guard(tabId);
     if(!await click(tabId,'done',5000)) throw new Error('Done button not found.');
@@ -1011,6 +1053,8 @@ async function processTarget(tabId,rows,index,t,exp,opts,ctx) {
     if(!r.cleared) throw new Error('Save is still visible. Review this row; no automatic second Save.');
     pending.forEach(k=>tg.detail[k]='updated');pending.length=0;
     tg.coordDone=true;
+    tg.coordinates={status:'unconfirmed',note:'Pin submitted; saved coordinates have not yet been read after refresh.'};
+    await wait(3000);
     await setRow(rows,index,'processing',{messages:r.messages,error:''}); // the row becomes 'submitted' once every business is done
   }
   // Finish submission now. The later check pass must never requeue a saved target.
@@ -1072,9 +1116,11 @@ async function verifyTarget(tabId,row,t,exp,fresh,uiIndex=t) {
   for(const key of ['address','address2','address3','locality','admin','postal']) {
     const e=expectedValues(row).find(x=>x.key===key);
     if(!e) continue;
-    if(e.want) got[key]=await findFieldValue(tabId,key);
+    if(e.want) got[key]=await readField(tabId,key);
     else if(e.empty) got[key]=await readField(tabId,key);
   }
+  // Read only: no map adjustment or Save in this pass.
+  tg.coordinates=await readSavedCoordinates(tabId,row);
   let bad=0,checked=0;
   for(const e of expectedValues(row)) {
     if(!e.want && !e.empty) continue; // blank in the sheet: nothing was changed, nothing to confirm
@@ -1093,6 +1139,28 @@ async function verifyTarget(tabId,row,t,exp,fresh,uiIndex=t) {
   await closeEditor(tabId);
   await chrome.storage.session.remove('matched');
   await wait(1000);
+}
+function distanceMeters(a,b) {
+  const rad=x=>x*Math.PI/180;
+  const h=Math.sin(rad(b.latitude-a.latitude)/2)**2+Math.cos(rad(a.latitude))*Math.cos(rad(b.latitude))*Math.sin(rad(b.longitude-a.longitude)/2)**2;
+  return 6371000*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));
+}
+async function readSavedCoordinates(tabId,row) {
+  let previous=null,stable=0,last=null;
+  for(let i=0;i<12;i++) {
+    const result=await readPage({target:{tabId,allFrames:true},func:inspectUI,args:['coordinatesRead',false,STORE,IDX]});
+    const hits=result.map(r=>r.result).filter(r=>r?.count===1 && Number.isFinite(r.latitude) && Number.isFinite(r.longitude) && Math.abs(r.latitude)<=90 && Math.abs(r.longitude)<=180);
+    if(hits.length!==1) return {status:'unconfirmed',note:'Saved pin coordinates are not exposed as unique latitude/longitude fields. Requested coordinates are not treated as observed values.',at:new Date().toISOString()};
+    last=hits[0];
+    stable=previous && distanceMeters(previous,last)<0.1 ? stable+1:1;
+    previous=last;
+    if(stable>=3) {
+      const d=Number.isFinite(row.latitude) && Number.isFinite(row.longitude)?distanceMeters(row,last):null;
+      return {latitude:last.latitude,longitude:last.longitude,distance:d,status:d===null?'read':d<=5?'match':'mismatch',at:new Date().toISOString(),note:'Read from saved latitude/longitude fields after refresh; three stable readings.'};
+    }
+    await wait(1000);
+  }
+  return {status:'unconfirmed',note:'Saved coordinate readings did not stabilize.',at:new Date().toISOString()};
 }
 function refreshedChecks(row) {
   const targets=(row.targets||[]).filter(t=>!t.skip);
@@ -1145,7 +1213,8 @@ async function runBatch(tabId,opts={coords:true,details:false}) {
     for(index=opts.startIndex||0;index<rows.length;index++) {
       const row=rows[index];
       const needs=RunPolicy.needs(row,opts);
-      const needCoords=needs.coords, needDetails=needs.details;
+      const needDetails=needs.details;
+      const needCoords=needs.coords || (opts.coords && needDetails && !RunPolicy.coordinateError(row));
       if(!needCoords && !needDetails) continue;
       if(cancelRequested || pauseRequested) break;
       try {
@@ -1224,6 +1293,7 @@ async function checkRows(tabId,rows,startIndex=0,startTarget=0) {
     if(!row.store || row.status==='invalid' || row.sheetSkip) continue;
     if(cancelRequested || pauseRequested) break;
     STORE=row.store;IDX=0;await checkpoint('check',index,row.store);
+    for(const target of row.targets||[]) target.coordinates={status:'unconfirmed',note:'Not read in the current refreshed check.'};
     await tell(`Read-only check ${index+1}/${rows.length} — ${STORE}: name, address, city, state and PIN…`);
     try {
       await ensureForeground(tabId);

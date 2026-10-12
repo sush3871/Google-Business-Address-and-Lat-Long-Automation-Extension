@@ -115,9 +115,9 @@ $('startRun').onclick = async () => {
     const {batchRows=[]}=await chrome.storage.local.get('batchRows');
     const pending=batchRows.filter(r => {const n=RunPolicy.needs(r,opts); return n.coords || n.details;});
     if(!pending.length) return say('No eligible work remains for this option. Review coordinate errors, Use Re-check all ATMs for a read-only verification; Queue again explicitly authorizes another update.');
-    const action=mode==='coords_address'?'set coordinates and correct mismatched address details':
-      mode==='coords_check'?'set coordinates and check address details without editing them':'correct mismatched address details without changing coordinates';
-    if(!confirm(`Process ${pending.length} store(s): ${action}? Business names will not be changed.`)) return;
+    const action=mode==='coords_address'?'correct mismatched business name and address details, then set coordinates':
+      mode==='coords_check'?'set coordinates and check address details without editing them':'correct mismatched business name and address details without changing coordinates';
+    if(!confirm(`Process ${pending.length} store(s): ${action}?`)) return;
     await send('start',{mode}); say('Started in a separate background Chrome window. You can keep working in other windows - this dashboard shows the progress.');
   } catch(e) {fail(e);}
 };
@@ -140,8 +140,8 @@ $('export').onclick = async () => {
   const { batchRows = [] } = await chrome.storage.local.get('batchRows');
   const cols = ['store', 'sheetRow', 'latitude', 'longitude', 'status', 'updated', 'error', 'checkError', 'observed', 'checkedAt'];
   const csvLine = r => r.map(v => '"' + String(v ?? '').replaceAll('"', '""') + '"').join(',');
-  const lines = [csvLine([...cols, 'name', 'address', 'locality', 'admin', 'postal']),
-    ...batchRows.map(r => csvLine([...cols.map(k => r[k]), ...['name', 'address', 'locality', 'admin', 'postal'].map(k => r.checks?.[k])]))];
+  const lines = [csvLine([...cols, 'savedLatitude', 'savedLongitude', 'coordinateCheck', 'name', 'address', 'locality', 'admin', 'postal']),
+    ...batchRows.map(r => csvLine([...cols.map(k => r[k]), ...XlsxOut.coordinateCells(r).slice(0,3), ...['name', 'address', 'locality', 'admin', 'postal'].map(k => r.checks?.[k])]))];
   download(new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv' }), 'store-coordinate-log.csv');
 };
 $('clearChecks').onclick = () => { if (confirm('Clear check results only? Saved update history will be retained.')) send('clearChecks').catch(fail); };

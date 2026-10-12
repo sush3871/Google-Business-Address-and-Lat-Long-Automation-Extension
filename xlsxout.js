@@ -8,7 +8,8 @@
   const HEADERS = ['Run option', 'Coordinate status', 'Business name check', 'Address check', 'Locality check', 'Admin area check', 'Postal code check',
     ...FIELDS.map(f => f[1] + ' update'), 'Update summary',
     ...FIELDS.map(f => f[1] + ' after refresh'), 'Refresh check summary',
-    'Skip reason', 'Shared store ID', 'Business Manager shows', 'Last checked', 'Notes'];
+    'Skip reason', 'Shared store ID', 'Business Manager shows', 'Last checked', 'Notes',
+    'Saved latitude', 'Saved longitude', 'Saved coordinate check', 'Distance from requested pin (m)', 'Coordinate readback notes'];
   const STATUS_TEXT = {
     submitted: 'Done - saved in Business Manager', done_manual: 'Done (marked by you)', queued: 'Not done yet', processing: 'Interrupted - check this store',
     saving: 'Check this store (save may have gone through)', submitted_review: 'Check this store (save may have gone through)',
@@ -85,14 +86,24 @@
     const t = targetsOf(row), done = t.filter(x => !x.skip && Object.keys(x.detail || {}).length || x.coordDone).length;
     return 'YES - ' + n + ' businesses share this store ID' + (t.length ? ' (' + done + ' processed, ' + (n - done) + ' skipped/not processed)' : '');
   }
+  function coordinateCells(row) {
+    const targets=targetsOf(row).filter(t=>!t.skip);
+    if(!targets.length) return ['', '', 'Unconfirmed', '', 'No saved coordinates read'];
+    const one=t=>{
+      const c=t.coordinates||{};
+      return [c.latitude ?? '',c.longitude ?? '',({match:'OK',mismatch:'MISMATCH',read:'Read',unconfirmed:'Unconfirmed'})[c.status]||'Unconfirmed',c.distance==null?'':Math.round(c.distance*100)/100,c.note||'No saved coordinates read'];
+    };
+    if(targets.length===1) return one(targets[0]);
+    return [0,1,2,3,4].map(k=>targets.map((t,i)=>'#'+(i+1)+': '+one(t)[k]).join('; '));
+  }
   function resultCells(row) {
     const c = row.checks || {};
-    return [({coords_address:'1 - Coordinates + address',coords_check:'2 - Coordinates + check address',address_only:'3 - Address only'})[row.lastRunMode] || '', STATUS_TEXT[row.status] || row.status || '',
+    return [({coords_address:'1 - Name + address, then coordinates',coords_check:'2 - Coordinates + check address',address_only:'3 - Name + address only'})[row.lastRunMode] || '', STATUS_TEXT[row.status] || row.status || '',
       ...['name', 'address', 'locality', 'admin', 'postal'].map(k => c[k] ? CHECK_TEXT[c[k]] : ''),
       ...FIELDS.map(([k]) => perField(row, k)), summaryText(row),
       ...FIELDS.map(([k]) => perFieldRefresh(row, k)), refreshSummary(row), skipText(row), sharedText(row),
       row.targets?.length > 1 ? row.targets.map((x, i) => '#' + (i + 1) + ' ' + (x.shows || '')).join(' || ') : (row.observed || row.targets?.[0]?.shows || ''),
-      row.checkedAt ? row.checkedAt.replace('T', ' ').slice(0, 16) : '', [row.detailsReview ? 'Review address save before resuming' : '', row.error, row.coordinateError, row.checkError, row.checkSummary, row.detailError, row.note, ...targetsOf(row).map(x => x.diag)].filter(Boolean).join(' | ')];
+      row.checkedAt ? row.checkedAt.replace('T', ' ').slice(0, 16) : '', [row.detailsReview ? 'Review address save before resuming' : '', row.error, row.coordinateError, row.checkError, row.checkSummary, row.detailError, row.note, ...targetsOf(row).map(x => x.diag)].filter(Boolean).join(' | '), ...coordinateCells(row)];
   }
   // style ids: 0 plain, 1 header, 2 green, 3 amber, 4 red, 5 blue
   function styleFor(header, text) {
@@ -159,7 +170,7 @@
       if (ri === headerRow) HEADERS.forEach((h, i) => { cells[cols[i]] = { v: h, s: 1 }; });
       else if (ri > headerRow && byRow.has(ri)) {
         const row = byRow.get(ri);
-        resultCells(row).forEach((t, i) => { cells[cols[i]] = { v: t, s: styleFor(HEADERS[i], t) }; });
+        resultCells(row).forEach((t, i) => { cells[cols[i]] = { v: t, n: typeof t === 'number' && Number.isFinite(t), s: styleFor(HEADERS[i], t) }; });
         if (multi(row) && map.store !== undefined) cells[map.store] = { v: cells[map.store].v, s: 5 };
       }
       return cells;
@@ -213,5 +224,5 @@
     const base = String(source.fileName || 'stores').replace(/\.[^.]+$/, '').replace(/_updated$/i, '');
     return { blob: new Blob([SheetIO.writeZip(parts)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename: base + '_updated.xlsx', counts };
   }
-  root.XlsxOut = { build, summaryText, refreshSummary, sharedText, skipText, HEADERS, FIELDS };
+  root.XlsxOut = { coordinateCells, build, summaryText, refreshSummary, sharedText, skipText, HEADERS, FIELDS };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
