@@ -1043,6 +1043,7 @@ async function processTarget(tabId,rows,index,t,exp,opts,ctx) {
       for(const [i,key] of ['address','address2','address3'].entries()) await detailStep(tabId,row,tg,key,pending,plan.lines[i]);
     }
     for(const key of ['locality','admin','postal']) await detailStep(tabId,row,tg,key,pending);
+<<<<<<< HEAD
     let needsPin=await addressNeedsPin(tabId);
     if(needsPin && opts.coords) {
       doCoords=true;tg.coordDone=false;
@@ -1063,12 +1064,30 @@ async function processTarget(tabId,rows,index,t,exp,opts,ctx) {
     }
     const bad=['address','address2','address3','locality','admin','postal'].filter(k=>['failed','notfound','review'].includes(tg.detail[k]));
     if(bad.length && doCoords && !needsPin) throw new Error('Address fields not completed ('+bad.join(', ')+'). Coordinates were not changed.');
+=======
+    if(pending.length) {
+      await tell(STORE+': saving street address, city, state and PIN before setting the pin…');
+      await saveDetails(tabId,tg,pending,rows,index);
+      // An address save may move a pin that was completed in an earlier run.
+      // Reapply once for this new address submission, never for a stale check.
+      if(opts.coords) {doCoords=true;tg.coordDone=false;}
+      await patchRow(rows,index,{});
+      await wait(5000); // Allow the address-driven map repositioning to finish first.
+      editClicked=false;
+    }
+    const bad=['address','address2','address3','locality','admin','postal'].filter(k=>['failed','notfound','review'].includes(tg.detail[k]));
+    if(bad.length && doCoords) throw new Error('Address fields not completed ('+bad.join(', ')+'). Coordinates were not changed.');
+>>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
   }
 
   if(doCoords) {
     await debugCommand({tabId},'Emulation.setGeolocationOverride',GEO);
     await tell(`${STORE}: setting ${row.latitude}, ${row.longitude}…`);
+<<<<<<< HEAD
     if(!editClicked && !await candidates(tabId,'adjust')) {
+=======
+    if(!editClicked) {
+>>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
       await click(tabId,'location',5000);
       editClicked=await click(tabId,'edit',5000);
     }

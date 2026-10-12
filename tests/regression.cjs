@@ -254,6 +254,7 @@ await test('Excel coordinate columns align with the observed values',async()=>{
  assert.deepEqual(Array.from(values),[19.2,73.4,'MISMATCH',8.46,'Read after refresh']);
  assert.equal(h.c.XlsxOut.HEADERS.slice(-5)[0],'Saved latitude');
 });
+<<<<<<< HEAD
 for(const stage of ['before-save','after-save']) await test('address not found '+stage+' positions Excel pin before submitting address',async()=>{
  const h=harness();h.eval(`
  guard=async()=>{};ensureForeground=async()=>{};openEditorFor=async()=>true;
@@ -290,5 +291,7 @@ await test('waitSaved returns pin correction only when explicitly enabled',async
  const allowed=await h.c.waitSaved(1,true);assert.equal(allowed.needsPin,true);assert.equal(allowed.cleared,false);
  const notAllowed=await h.c.waitSaved(1);assert.equal(notAllowed.cleared,false);assert.equal(notAllowed.needsPin,undefined);
 });
+=======
+>>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
 console.log(`${passed} regression tests passed.`);
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 Store Coordinate Batch for Chrome — v5.1.1
+=======
+Store Coordinate Batch for Chrome — v5.1.0
+>>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
 
 INSTALL / UPDATE
 1. Finish or pause the old extension's run. Download its existing result first.
@@ -23,8 +27,12 @@ OPTION 1 — ORDER FOR EACH BUSINESS
 - A newly saved address can move a pin completed earlier. Option 1 reapplies
   the requested pin once in that case. A mismatch in the final check never does.
 - Move to the next store. Unsupported or failed fields are reported. Incomplete
+<<<<<<< HEAD
   address fields are reported. An explicit Google address-not-found warning
   allows the Excel pin correction before address submission.
+=======
+  address fields block coordinate changes on that business.
+>>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
 - After ALL update attempts, refresh once and perform ONE read-only pass over
   name, address lines, city, state and PIN. This pass never types, saves or moves
   a pin. It reports mismatches without retrying updates.
@@ -60,13 +68,18 @@ is still visible. An interrupted name/address Save requires manual review before
 resuming, preventing an automatic duplicate submission.
 
 VALIDATION
+<<<<<<< HEAD
 35 automated regression tests cover run modes, save order, read-only final pass,
+=======
+31 automated regression tests cover run modes, save order, read-only final pass,
+>>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
 name-save interruption, upgrade history, resume, coordinate readback and exports.
 Run with Node: node tests/regression.cjs
 Live Google Business Manager was not available for end-to-end validation.
 Test a small batch first and inspect the field-by-field results.
 Source code is included: worker.js, runpolicy.js, dashboard.js, match.js,
 sheetio.js, xlsxout.js, page-controls.js and dashboard HTML/CSS.
+<<<<<<< HEAD
 
 ADDRESS CANNOT BE FOUND — v5.1.1
 If Google shows “Address can’t be found”, option 1 retains the entered address,
@@ -76,3 +89,5 @@ an address Save attempt. It never repeats a completed save automatically.
 The location-review form's Confirm button is supported as well as Save.
 The final read-only check records an address mismatch if it still did not update.
 Option 3 still never changes coordinates.
+=======
+>>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
