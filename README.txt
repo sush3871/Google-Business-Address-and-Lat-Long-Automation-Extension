@@ -1,93 +1,88 @@
-<<<<<<< HEAD
-Store Coordinate Batch for Chrome — v5.1.1
-=======
-Store Coordinate Batch for Chrome — v5.1.0
->>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
+Store Coordinate Batch for Chrome — v5.2.0
 
-INSTALL / UPDATE
-1. Finish or pause the old extension's run. Download its existing result first.
-2. Extract this ZIP to C:\StoreCoordinateBatch. The inner folder contains manifest.json.
-3. Use the Chrome profile signed into the ICICI Business Manager account.
-4. Open chrome://extensions and turn on Developer mode.
-5. For an existing unpacked install, replace the files inside its EXISTING extension
-   folder with these files, then click Reload. This preserves its queue/history.
-   For a new install, click Load unpacked and select the folder with manifest.json.
-   Do not leave two versions enabled at once.
-6. Refresh the Business Manager list tab, then open the extension dashboard.
-7. Load ATM-pending.xlsx and choose its worksheet. Click Load into queue.
-8. Choose option 1: Correct business name + address, then set coordinates.
-9. Start. After both passes finish, click Download Excel (.xlsx).
+UPDATE
+1. Finish or pause the old run and download its results.
+2. Extract this ZIP. Replace files in the EXISTING unpacked-extension folder.
+3. In the ICICI Chrome profile, open chrome://extensions and click Reload.
+4. Refresh Business Manager and reopen the extension dashboard.
+5. Keep queue/history. For a previously completed ATM whose pin/details are wrong,
+   use its Queue again button to explicitly permit a new update. Completed saves
+   are never repeated merely because Google's display is delayed.
+6. Test a small batch before the full file; download and inspect the Excel results.
+For a new install, enable Developer mode and Load unpacked the folder containing
+manifest.json. Do not enable two versions simultaneously.
 
-OPTION 1 — ORDER FOR EACH BUSINESS
-- Compare and save Business name if it differs.
-- Compare Street address lines 1–3, City, State and PIN; change mismatches.
-- Save the address form separately, wait 5 seconds, reopen location editing.
-- Set the pin to the input Excel Latitude/Longitude, wait 5 seconds for the
-  current-location action, finish map positioning, then save and await completion.
-- A newly saved address can move a pin completed earlier. Option 1 reapplies
-  the requested pin once in that case. A mismatch in the final check never does.
-- Move to the next store. Unsupported or failed fields are reported. Incomplete
-<<<<<<< HEAD
-  address fields are reported. An explicit Google address-not-found warning
-  allows the Excel pin correction before address submission.
-=======
-  address fields block coordinate changes on that business.
->>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
-- After ALL update attempts, refresh once and perform ONE read-only pass over
-  name, address lines, city, state and PIN. This pass never types, saves or moves
-  a pin. It reports mismatches without retrying updates.
+TWO UPDATE OPTIONS
+1. Correct name, address, city, state and PIN, then set coordinates.
+   Compare each provided field against its own editor control. Save a changed
+   business name separately. Enter address lines, state, PIN and city (city last).
+   Re-read the location draft to catch autofill overwriting an earlier field.
+   Save location details, wait and reopen the location editor before setting the
+   requested Excel pin. Address edits invalidate previous pin completion/history
+   before Save, so an interrupted address update cannot bypass the final pin step.
+   If Google says the address cannot be found, set the pin and submit the address
+   and pin together. A missing field is reported and does not suppress coordinates.
+   After every ATM has been attempted, perform ONE read-only final check of name,
+   all address lines, city, state, PIN and exposed saved coordinate fields.
+   The check pass never changes fields or repeats Save.
+2. Only set latitude/longitude and check details on the first visit.
+   No name/address/city/state/PIN writes and NO automatic second pass.
+Option 3 has been removed from the UI and rejected by the run policy. Address
+edits can change the pin, so both update modes require valid final coordinates.
+A remembered old option 3 is not restored. Choose one of the two current options.
+The separate Re-check all ATMs button remains strictly read-only.
 
-OTHER OPTIONS
-2. Set coordinates; check name/address without changing them. One update pass.
-3. Correct name and address details; no coordinate changes. Final read-only pass.
-Re-check all ATMs repeats only the read-only pass.
-Stop / Start suspends and resumes the current operation; switching tabs inside
-its worker window pauses it. Do not interact with the worker page during a run.
+FIELD FIXES
+- Nested combobox wrappers and inputs count as one control.
+- Semantic address autocomplete attributes and more label variants are recognized.
+- Editable autocomplete inputs can be typed; readonly dropdowns are selected.
+- Native/custom state dropdowns match abbreviations such as MH to Maharashtra.
+- State/PIN/city draft values are rechecked after autofill before Save.
+- Failures remain visible in per-field results; missing fields are never called OK.
+Input column names include Store code, Business name, Street address / Address
+line 1, Street address line 2/3, City / Locality, State / Administrative area,
+PIN / Postal code, Latitude and Longitude. Existing India-coordinate guard remains.
+Line 1 over 80 characters spills into lines 2/3. Overlong total addresses are
+reported without truncation. Empty secondary lines are cleared in option 1;
+blank primary address/city/state/PIN values do not erase those fields.
 
-EXCEL RESULTS AND COORDINATE LIMITATION
-Input columns remain unchanged. Additional columns show each field's update,
-old value, result after refresh, errors, skips and checks.
-Saved latitude / Saved longitude are OBSERVED values, separate from the requested
-input coordinates. During the final refreshed check, if Google exposes unique
-labelled Latitude and Longitude fields, the extension waits for three stable
-readings and reports distance from the requested pin. <=5 metres is OK.
-If those fields are unavailable (including map-only editors), it leaves saved
-coordinates blank and reports Unconfirmed. It does NOT use map viewport centres,
-copy input coordinates as observed values, or claim the actual pin is verified.
-Google review/propagation may last longer than this run. A completed Save is a
-submission, not proof of public Google Maps publication. Delayed changes remain
-mismatches or unconfirmed and never cause an automatic rewrite.
-Use the read-only button later to check again without resubmitting changes.
-For shared store codes, every profile is identified by its listing link and
-gets separate results. Unverified/duplicate/unavailable listings are skipped.
+COORDINATE FIXES AND VERIFICATION
+Both modes explicitly apply the requested geolocation for each ATM and check
+that Chrome actually returns that location before using the map. Allow Location
+for business.google.com when Chrome asks; denied/incorrect geolocation is logged
+as an error and no pin Save is attempted.
+The map is activated with the existing drag method and then recentered using
+Current location again. The final position is no longer left to two approximate
+drags. If exposed numeric draft coordinates disagree by over 2 metres, the tool
+stops that submission rather than knowingly saving the wrong position.
+A completed Save is a SUBMISSION, not proof of public Google Maps publication.
+Some Google layouts do not expose numeric pin fields. In those layouts, exact
+pin verification remains UNCONFIRMED. Requested coordinates are never copied
+into the Saved latitude/longitude columns as though they were observed.
+Option 1's final check reads exposed saved fields until three readings stabilize;
+its existing 5-metre result tolerance is retained. Option 2 has no post-save pass;
+use Re-check all ATMs manually if you want later saved-coordinate checks.
+Delayed or mismatching final checks never trigger automatic updates.
 
-UPGRADE BEHAVIOUR
-Old address completion records no longer suppress a missing name update.
-Previously submitted fields are not typed again simply because the old value
-is still visible. An interrupted name/address Save requires manual review before
-resuming, preventing an automatic duplicate submission.
+BACKGROUND WINDOW AND STOP / START
+The extension uses its own Chrome window. Do not minimize it or interact with
+its editor while running. A location permission prompt or map-point calibration
+may require your attention. Keep the window visible enough for Chrome to render.
+The floating Stop/Start button and dashboard controls preserve the current
+business and operation. Changing tabs within the worker window pauses the run;
+working in a different window does not. Unknown Save outcomes require the
+existing manual review control before retry, preventing duplicate submissions.
 
 VALIDATION
-<<<<<<< HEAD
-35 automated regression tests cover run modes, save order, read-only final pass,
-=======
-31 automated regression tests cover run modes, save order, read-only final pass,
->>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
-name-save interruption, upgrade history, resume, coordinate readback and exports.
-Run with Node: node tests/regression.cjs
-Live Google Business Manager was not available for end-to-end validation.
-Test a small batch first and inspect the field-by-field results.
-Source code is included: worker.js, runpolicy.js, dashboard.js, match.js,
-sheetio.js, xlsxout.js, page-controls.js and dashboard HTML/CSS.
-<<<<<<< HEAD
-
-ADDRESS CANNOT BE FOUND — v5.1.1
-If Google shows “Address can’t be found”, option 1 retains the entered address,
-sets the Excel latitude/longitude using Adjust map, presses Done, then submits
-the address and pin together. The same fallback handles this validation after
-an address Save attempt. It never repeats a completed save automatically.
-The location-review form's Confirm button is supported as well as Save.
-The final read-only check records an address mismatch if it still did not update.
-Option 3 still never changes coordinates.
-=======
->>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
+44 local tests: 34 regression cases plus 10 field/coordinate cases, using mocked
+Chrome APIs, synthetic field controls and simulated Google responses. Coverage
+includes native/custom dropdowns, nested city controls, PIN autofill, save order,
+invalidated pin history, geolocation mismatch/denial, map recenter order, rejected
+wrong draft pins, two-mode isolation, read-only checks, Stop/Start and Excel export.
+Commands: node tests/regression.cjs
+          node tests/fields-and-pin.cjs
+JavaScript syntax and generated Excel structure also checked.
+No signed-in Google Business Manager session was available for live end-to-end
+validation. Google layout, map behavior and account-specific permissions still
+need a small live test. This ZIP includes source code and tests, without embedded
+repository history or generated test-result files.

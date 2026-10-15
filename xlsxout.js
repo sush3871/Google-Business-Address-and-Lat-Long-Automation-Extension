@@ -98,7 +98,7 @@
   }
   function resultCells(row) {
     const c = row.checks || {};
-    return [({coords_address:'1 - Name + address, then coordinates',coords_check:'2 - Coordinates + check address',address_only:'3 - Name + address only'})[row.lastRunMode] || '', STATUS_TEXT[row.status] || row.status || '',
+    return [({coords_address:'1 - Name + address, then coordinates',coords_check:'2 - Coordinates + check address',address_only:'Legacy address-only run (removed)'})[row.lastRunMode] || '', STATUS_TEXT[row.status] || row.status || '',
       ...['name', 'address', 'locality', 'admin', 'postal'].map(k => c[k] ? CHECK_TEXT[c[k]] : ''),
       ...FIELDS.map(([k]) => perField(row, k)), summaryText(row),
       ...FIELDS.map(([k]) => perFieldRefresh(row, k)), refreshSummary(row), skipText(row), sharedText(row),

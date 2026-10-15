@@ -107,7 +107,7 @@ $('import').onclick = async () => {
 /* ---- Step 2 ---- */
 $('runMode').onchange = () => chrome.storage.local.set({selectedRunMode:$('runMode').value}).catch(fail);
 chrome.storage.local.get('selectedRunMode').then(s => {
-  if (['coords_address','coords_check','address_only'].includes(s.selectedRunMode)) $('runMode').value=s.selectedRunMode;
+  if (['coords_address','coords_check'].includes(s.selectedRunMode)) $('runMode').value=s.selectedRunMode;
 }).catch(fail);
 $('startRun').onclick = async () => {
   try {
@@ -116,7 +116,7 @@ $('startRun').onclick = async () => {
     const pending=batchRows.filter(r => {const n=RunPolicy.needs(r,opts); return n.coords || n.details;});
     if(!pending.length) return say('No eligible work remains for this option. Review coordinate errors, Use Re-check all ATMs for a read-only verification; Queue again explicitly authorizes another update.');
     const action=mode==='coords_address'?'correct mismatched business name and address details, then set coordinates':
-      mode==='coords_check'?'set coordinates and check address details without editing them':'correct mismatched business name and address details without changing coordinates';
+      'set coordinates and check address details without editing them';
     if(!confirm(`Process ${pending.length} store(s): ${action}?`)) return;
     await send('start',{mode}); say('Started in a separate background Chrome window. You can keep working in other windows - this dashboard shows the progress.');
   } catch(e) {fail(e);}

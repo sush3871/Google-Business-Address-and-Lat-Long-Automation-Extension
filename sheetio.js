@@ -336,7 +336,7 @@
       const bad = [];
       if (!store) bad.push('no store code');
       row.coordinateError = RunPolicy.coordinateError(row);
-      if (row.coordinateError) problems.push(`Row ${r + 1} (${store}): ${row.coordinateError} Address-only mode is still available.`);
+      if (row.coordinateError) problems.push(`Row ${r + 1} (${store}): ${row.coordinateError} Update modes will skip this row; read-only checking is still available.`);
       const dataKey = [row.name, row.address, row.address2, row.address3, row.locality, row.admin, row.postal, lat, lng].join('|').toLowerCase();
       if (!bad.length && store && seen.has(store)) {
         const first = seen.get(store);

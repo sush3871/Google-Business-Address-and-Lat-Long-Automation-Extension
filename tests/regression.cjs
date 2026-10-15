@@ -12,28 +12,29 @@ function harness() {
 }
 let passed=0;
 async function test(name,fn){await fn();passed++;console.log('PASS '+name);}
-(async()=>{
-await test('all three mode permissions are explicit; unknown modes rejected',()=>{
+module.exports={harness};
+if(require.main===module) (async()=>{
+await test('both mode permissions are explicit; unknown modes rejected',()=>{
  const {c}=harness();
  assert.deepEqual(JSON.parse(JSON.stringify(c.RunPolicy.options('coords_check'))),{coords:true,details:false,mode:'coords_check'});
  assert.equal(c.RunPolicy.options('coords_address').details,true);
- assert.equal(c.RunPolicy.options('address_only').coords,false);
+ assert.throws(()=>c.RunPolicy.options('address_only'));
  assert.throws(()=>c.RunPolicy.options('garbage'));
 });
-await test('address-only imports without coordinate columns; duplicates remain skipped',async()=>{
+await test('sheets without coordinates remain check-only; duplicates stay skipped',async()=>{
  const h=harness();
  const file=new Blob(['Store code,Street address\n001,First Road\n001,Second Road']);file.name='test.csv';
  const loaded=await h.c.SheetIO.load(file);
  const q=h.c.SheetIO.queueFromSheet(loaded.sheets[0]);
  assert.equal(q.rows.length,2);assert.equal(q.rows[0].status,'queued');assert.equal(q.rows[1].sheetSkip,true);
- assert.equal(h.c.RunPolicy.needs(q.rows[0],h.c.RunPolicy.options('address_only')).details,true);
+ assert.equal(h.c.RunPolicy.needs(q.rows[0],h.c.RunPolicy.options('coords_address')).details,false);
  assert.equal(h.c.RunPolicy.needs(q.rows[0],h.c.RunPolicy.options('coords_check')).coords,false);
 });
 await test('mode 1 still corrects addresses after coordinates were completed',()=>{
  const {c}=harness(), row={store:'001',status:'submitted',latitude:19,longitude:73};
  assert.equal(c.RunPolicy.needs(row,c.RunPolicy.options('coords_address')).details,true);
  assert.equal(c.RunPolicy.needs(row,c.RunPolicy.options('coords_address')).coords,false);
- row.detailsReview=true;assert.equal(c.RunPolicy.needs(row,c.RunPolicy.options('address_only')).details,false);
+ row.detailsReview=true;assert.equal(c.RunPolicy.needs(row,c.RunPolicy.options('coords_address')).details,false);
 });
 await test('coordinate changes invalidate target completion on reimport',async()=>{
  const h=harness(),r={store:'001',status:'submitted',latitude:19,longitude:73,address:'Road',policyVersion:'4.6',targets:[{link:'a',coordDone:true}],detailsDone:true};
@@ -46,11 +47,12 @@ await test('Unicode addresses do not compare as empty tokens',()=>{
  const p=c.ProfileMatch.splitAddress('Long Road '.repeat(12),'Near Bank','Floor 2');
  assert.ok(p.lines[0].length<=80);assert.ok(p.lines[1].length<=80);assert.ok(p.lines.join(' ').includes('Near Bank'));
 });
-for(const mode of ['coords_address','coords_check','address_only']) await test(mode+' executes only permitted mutations',async()=>{
+for(const mode of ['coords_address','coords_check']) await test(mode+' executes only permitted mutations',async()=>{
  const h=harness();
  h.eval(`
  guard=async()=>{};ensureForeground=async()=>{};openEditorFor=async()=>true;
  readEditorFields=async()=>'';recordChecks=async()=>{};closeEditor=async()=>{};nudge=async()=>null;
+ prepareCoordinates=async()=>{await debugCommand({tabId:1},'Emulation.setGeolocationOverride',{});};readField=async()=>null;
  globalThis.effects=[];globalThis.adjustOpen=false;
  click=async(_,kind)=>{effects.push(kind);if(kind==='adjust') adjustOpen=true;if(kind==='done') adjustOpen=false;return true;};
  candidates=async(_,kind)=>kind==='done'?adjustOpen:kind==='save';
@@ -89,13 +91,13 @@ await test('interrupted address Save leaves durable review marker',async()=>{
 await test('stale displayed values do not requeue a saved address',async()=>{
  const h=harness();h.eval(`guard=async()=>{};openEditorFor=async()=>true;closeEditor=async()=>{};clickTabNamed=async()=>true;click=async()=>true;readNameDisplayed=async()=> 'Old name';readField=async()=> '';findFieldValue=async()=> 'Old address';`);
  const detail=Object.fromEntries(['name','address','address2','address3','locality','admin','postal'].map(k=>[k,'updated']));
- const row={store:'001',status:'queued',address:'New address',name:'New name',targets:[{detailsDone:true,detail}],detailsDone:true};
+ const row={store:'001',status:'queued',latitude:19,longitude:73,address:'New address',name:'New name',targets:[{detailsDone:true,detail}],detailsDone:true};
  await h.c.verifyTarget(1,row,0,{},true);
  assert.equal(row.targets[0].verify.status,'mismatch');assert.equal(row.targets[0].detailsDone,true);
- assert.equal(h.c.RunPolicy.needs(row,h.c.RunPolicy.options('address_only')).details,false);
+ assert.equal(h.c.RunPolicy.needs(row,h.c.RunPolicy.options('coords_address')).details,false);
  // Upgrade: v4.6 may have left both done flags false despite a successful Save.
  row.detailsDone=false;row.targets[0].detailsDone=false;
- assert.equal(h.c.RunPolicy.needs(row,h.c.RunPolicy.options('address_only')).details,false);
+ assert.equal(h.c.RunPolicy.needs(row,h.c.RunPolicy.options('coords_address')).details,false);
 });
 await test('already submitted fields are not retyped during a partial retry',async()=>{
  const h=harness();h.eval(`findFieldValue=async()=>{throw Error('Must not reread and rewrite a submitted field');};setField=async()=>{throw Error('Must not type');};`);
@@ -108,7 +110,7 @@ await test('all updates precede the separate read-only pass',async()=>{
  searchStore=async()=>({count:1,links:[STORE],summaries:['ATM'],cols:[],biz:[]});
  processTarget=async(_,rows,i)=>{events.push('save:'+rows[i].store);rows[i].targets[0].detailsDone=true;return 'done';};
  checkRows=async(_,rows)=>{for(const row of rows) events.push('check:'+row.store);};`);
- await h.c.runBatch(1,h.c.RunPolicy.options('address_only'));
+ await h.c.runBatch(1,h.c.RunPolicy.options('coords_address'));
  assert.deepEqual(Array.from(h.c.events),['save:A','save:B','save:C','check:A','check:B','check:C']);
 });
 await test('coordinate-only mode visits each ATM once and stops without rechecking',async()=>{
@@ -174,7 +176,7 @@ await test('saved row cursor starts at that row even when earlier rows have erro
 });
 await test('Excel export includes run mode and third-line mismatch',async()=>{
  const h=harness();
- const result=await h.c.XlsxOut.build({name:'Test',fileName:'input.csv',headerRow:0,map:{store:0,address:1},matrix:[['Store code','Street address'],['001','Road']]},[{store:'001',sheetRow:2,address:'Road',status:'queued',lastRunMode:'address_only',checks:{address:'mismatch'},targets:[]}]);
+ const result=await h.c.XlsxOut.build({name:'Test',fileName:'input.csv',headerRow:0,map:{store:0,address:1},matrix:[['Store code','Street address'],['001','Road']]},[{store:'001',sheetRow:2,address:'Road',status:'queued',lastRunMode:'coords_address',checks:{address:'mismatch'},targets:[]}]);
  assert.ok(result.blob.size>1000);fs.writeFileSync(path.join(root,'tests','result-test.xlsx'),Buffer.from(await result.blob.arrayBuffer()));
 });
 await test('background run opens an unfocused window and returns focus to the dashboard',async()=>{
@@ -212,7 +214,7 @@ await test('background window closes only after a complete run',async()=>{
 });
 await test('old address completion without a name result is eligible for name repair',()=>{
  const h=harness(), detail=Object.fromEntries(['address','address2','address3','locality','admin','postal'].map(k=>[k,'updated']));
- const row={store:'001',status:'submitted',detailsDone:true,targets:[{detailsDone:true,detail}]};
+ const row={store:'001',latitude:19,longitude:73,status:'submitted',detailsDone:true,targets:[{detailsDone:true,detail}]};
  assert.equal(h.c.RunPolicy.needs(row,h.c.RunPolicy.options('coords_address')).details,true);
  row.targets[0].detail.name='updated';
  assert.equal(h.c.RunPolicy.needs(row,h.c.RunPolicy.options('coords_address')).details,false);
@@ -230,7 +232,7 @@ await test('interrupted business name save cannot be automatically retried',asyn
  const rows=[{store:'A',targets:[{detail:{},notes:{},was:{}}]}];
  await assert.rejects(h.c.nameStep(1,{name:'New'},rows[0].targets[0],rows,0),/Disconnected/);
  assert.equal(h.data.batchRows[0].detailsReview,true);
- assert.equal(h.c.RunPolicy.needs(h.data.batchRows[0],h.c.RunPolicy.options('address_only')).details,false);
+ assert.equal(h.c.RunPolicy.needs(h.data.batchRows[0],h.c.RunPolicy.options('coords_address')).details,false);
 });
 await test('coordinate readback waits for stability and computes actual distance',async()=>{
  const h=harness();let calls=0;
@@ -254,12 +256,11 @@ await test('Excel coordinate columns align with the observed values',async()=>{
  assert.deepEqual(Array.from(values),[19.2,73.4,'MISMATCH',8.46,'Read after refresh']);
  assert.equal(h.c.XlsxOut.HEADERS.slice(-5)[0],'Saved latitude');
 });
-<<<<<<< HEAD
 for(const stage of ['before-save','after-save']) await test('address not found '+stage+' positions Excel pin before submitting address',async()=>{
  const h=harness();h.eval(`
  guard=async()=>{};ensureForeground=async()=>{};openEditorFor=async()=>true;
  readEditorFields=async()=>'';recordChecks=async()=>{};closeEditor=async()=>{};
- prepareLocationSave=async()=>{};nudge=async()=>null;
+ prepareLocationSave=async()=>{};nudge=async()=>null;prepareCoordinates=async()=>{};readField=async()=>null;
  globalThis.effects=[];globalThis.adjustOpen=false;
  click=async(_,kind)=>{effects.push(kind);if(kind==='adjust') adjustOpen=true;if(kind==='done') adjustOpen=false;return true;};
  candidates=async(_,kind)=>kind==='done'?adjustOpen:['save','adjust'].includes(kind);
@@ -291,7 +292,5 @@ await test('waitSaved returns pin correction only when explicitly enabled',async
  const allowed=await h.c.waitSaved(1,true);assert.equal(allowed.needsPin,true);assert.equal(allowed.cleared,false);
  const notAllowed=await h.c.waitSaved(1);assert.equal(notAllowed.cleared,false);assert.equal(notAllowed.needsPin,undefined);
 });
-=======
->>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
 console.log(`${passed} regression tests passed.`);
 })().catch(e=>{console.error(e);process.exitCode=1});

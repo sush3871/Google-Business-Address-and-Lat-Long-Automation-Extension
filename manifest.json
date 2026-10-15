@@ -1,11 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Store Coordinate Batch for Chrome",
-<<<<<<< HEAD
-  "version": "5.1.1",
-=======
-  "version": "5.1.0",
->>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
+  "version": "5.2.0",
   "minimum_chrome_version": "116",
   "description": "Sets store pin coordinates from your LibreOffice sheet in Google Business Manager, checks and corrects name/address, and exports an Excel result file.",
   "permissions": [

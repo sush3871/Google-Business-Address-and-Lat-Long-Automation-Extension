@@ -2,8 +2,7 @@
 (function(root) {
   const modes = {
     coords_address: {coords:true, details:true},
-    coords_check: {coords:true, details:false},
-    address_only: {coords:false, details:true}
+    coords_check: {coords:true, details:false}
   };
   function options(mode) {
     if (!Object.prototype.hasOwnProperty.call(modes, mode)) throw new Error('Choose a valid run option.');
@@ -22,7 +21,7 @@
       key=>['updated','ok','blank'].includes(target.detail?.[key]));
   }
   function needs(row, opts) {
-    const eligible=!!row.store && !row.detailsReview && !row.sheetSkip && !['invalid','skipped','reviewed_skip','done_manual'].includes(row.status);
+    const eligible=!coordinateError(row) && !!row.store && !row.detailsReview && !row.sheetSkip && !['invalid','skipped','reviewed_skip','done_manual'].includes(row.status);
     return {
       coords:eligible && opts.coords && ['queued','error'].includes(row.status) && !coordinateError(row),
       details:eligible && opts.details && !(row.targets?.filter(t=>!t.skip).length && row.targets.filter(t=>!t.skip).every(t=>detailsSubmitted(t)))

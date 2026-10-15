@@ -139,16 +139,19 @@ function inspectUI(kind, commit=false, store, idx=0, value='') {
     return {count:0, text:vals.join(' | ').slice(0,3000)};
   }
   const labelsOf = e => {
-    const out = [e.getAttribute('aria-label'), e.placeholder, e.getAttribute('name')];
+    const autocomplete=e.getAttribute('autocomplete')||'';
+    const semantic={'address-level1':'State','address-level2':'City','postal-code':'Postal code','address-line1':'Street address','address-line2':'Street address line 2','address-line3':'Street address line 3'};
+    const out = [e.getAttribute('aria-label'), e.placeholder, e.getAttribute('name'), semantic[autocomplete.split(/\s+/).pop()]];
     if(e.id) { const l = document.querySelector('label[for="' + CSS.escape(e.id) + '"]'); if(l) out.push(l.innerText); }
     const by = e.getAttribute('aria-labelledby'); if(by) out.push(by.split(/\s+/).map(i => document.getElementById(i)?.innerText || '').join(' '));
     const wrap = e.closest('label'); if(wrap) out.push(wrap.innerText);
     const box = e.closest('[role="group"],mat-form-field,[class*="field" i],[class*="input" i]'); if(box) out.push((box.innerText || '').split('\n')[0].slice(0,60));
     if(e.previousElementSibling) out.push((e.previousElementSibling.innerText || '').split('\n')[0].slice(0,60));
-    return out.filter(Boolean).map(v => v.trim().replace(/\s*\*$/, '')).filter(Boolean);
+    return out.filter(Boolean).map(v => v.trim().replace(/[_-]+/g,' ').replace(/\s*(?:\*|:|\(required\)|\(optional\))\s*$/i, '')).filter(Boolean);
   };
   const fieldEls = () => [...document.querySelectorAll('input,textarea,select,[role="combobox"]')].filter(e => visible(e) && !e.disabled &&
-    !['hidden','password','checkbox','radio','button','submit','file','search'].includes((e.type||'').toLowerCase()));
+    !['hidden','password','checkbox','radio','button','submit','file','search'].includes((e.type||'').toLowerCase()))
+    .filter(e=>!e.querySelector('input,textarea,select')); // A combobox wrapper and its input are one field.
   const press = e => { e.scrollIntoView({block:'center'});
     for(const t of ['pointerdown','mousedown','pointerup','mouseup']) e.dispatchEvent(new MouseEvent(t, {bubbles:true, cancelable:true, view:window}));
     e.click(); };
@@ -209,6 +212,7 @@ function inspectUI(kind, commit=false, store, idx=0, value='') {
   if(kind === 'dialogText') return {count:0, text:(document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 500)};
   if(kind === 'fieldList') return {count:0, fields:fieldEls().map(e => labelsOf(e)[0] || '(no label)').slice(0,40)};
   if(kind === 'tabs') return {count:0, tabs:[...document.querySelectorAll('[role="tab"]')].filter(visible).map(e => name(e)).filter(Boolean).slice(0,15)};
+  if(kind === 'optionList') return {count:0,options:[...document.querySelectorAll('[role="option"],[role="menuitem"]')].filter(visible).map(e=>(e.innerText||'').trim()).filter(Boolean)};
   if(kind === 'tab' || kind === 'option') {
     const want = String(value).trim().toLowerCase();
     const els = kind === 'tab' ? [...document.querySelectorAll('[role="tab"]')] : [...document.querySelectorAll('[role="option"],[role="menuitem"],li')];
@@ -219,8 +223,8 @@ function inspectUI(kind, commit=false, store, idx=0, value='') {
   if(kind.startsWith('field:')) { // one form field found by its label; 'set' writes the value, 'open' opens a custom drop-down
     const key = kind.slice(6);
     const RX = {name:/^business name\b/i, address:/^(street address|address line 1|address)(?!.*\b(line [23]|[23])\b)/i,
-      address2:/^(street )?address( line)? 2\b/i, address3:/^(street )?address( line)? 3\b/i, locality:/^(city|town|locality|suburb)/i,
-      admin:/^(state|province|administrative area|region)/i, postal:/^(pin ?code|postal ?code|zip|postcode)/i}[key];
+      address2:/^(street )?address( line)? 2\b/i, address3:/^(street )?address( line)? 3\b/i, locality:/^(city|town|locality|suburb|address locality)/i,
+      admin:/^(state|province|administrative area|region|address region)/i, postal:/^(pin(?: ?code)?|postal(?: ?code)?|zip|post ?code)/i}[key];
     const EXACT = {name:/^business name$/i, address:/^street address$/i, address2:/^street address line 2$/i, address3:/^street address line 3$/i,
       locality:/^(city|town)$/i, admin:/^state$/i, postal:/^pin ?code$/i}[key];
     if(!RX) return {count:0};
@@ -230,8 +234,9 @@ function inspectUI(kind, commit=false, store, idx=0, value='') {
       if(els.length > 1) { const dlg = els.filter(e => e.closest('[role="dialog"],[aria-modal="true"]')); if(dlg.length >= 1) els = dlg; }
     }
     if(els.length !== 1) return {count:els.length};
-    const e = els[0], custom = e.tagName !== 'SELECT' && (e.readOnly || e.getAttribute('role') === 'combobox' || !['INPUT','TEXTAREA'].includes(e.tagName));
-    const read = () => String(e.tagName === 'SELECT' ? (e.selectedOptions[0]?.text || '') : (e.value !== undefined ? e.value : (e.innerText || ''))).trim();
+    const e = els[0], custom = e.tagName !== 'SELECT' && (e.readOnly || !['INPUT','TEXTAREA'].includes(e.tagName));
+    const read = () => String(e.tagName === 'SELECT' ? (e.selectedOptions[0]?.text || '') : (e.value !== undefined ? e.value : (e.getAttribute('aria-valuetext') || e.innerText || ''))).trim();
+    if(commit === 'meta') return {count:1,editable:['INPUT','TEXTAREA'].includes(e.tagName) && !e.readOnly,combobox:e.getAttribute('role')==='combobox',options:e.tagName==='SELECT'?[...e.options].map(o=>o.text.trim()):null};
     if(commit === 'point') { e.scrollIntoView({block:'center'}); const r = e.getBoundingClientRect(); return {count:1, point:{x:r.x + r.width / 2, y:r.y + r.height / 2}}; }
     if(commit !== 'set' && commit !== 'open') return {count:1, value:read()};
     if(commit === 'open') { e.scrollIntoView({block:'center'}); e.click(); return {count:1, opened:true}; }
@@ -831,7 +836,7 @@ async function typeField(tabId,key,value) {
   if(value) await debugCommand({tabId},'Input.insertText',{text:value});
   await wait(500);
   const now=await readField(tabId,key);
-  return now!==null && ProfileMatch.same(value,now) ? {ok:true} : {ok:false,reason:'typing did not change the field (it shows "'+(now??'')+'")'};
+  return now!==null && ProfileMatch.same(value,now,SAME_OPTS[key]) ? {ok:true} : {ok:false,reason:'typing did not change the field (it shows "'+(now??'')+'")'};
 }
 async function waitField(tabId,key,ms) {
   const end=runNow()+ms;
@@ -917,23 +922,30 @@ async function findFieldValue(tabId,key) {
 }
 async function setField(tabId,key,value) {
   const found=await candidates(tabId,'field:'+key);
-  if(!found) return {ok:false,reason:'field not found'};
-  const r=await pageScript({target:{tabId,frameIds:[found.frameId]},func:inspectUI,args:['field:'+key,'set',STORE,IDX,value]});
-  const x=r[0].result||{};
-  if(x.custom) { // custom drop-down (e.g. State): open it, pick the matching option, then read it back
-    await pageScript({target:{tabId,frameIds:[found.frameId]},func:inspectUI,args:['field:'+key,'open',STORE,IDX,value]});
-    await wait(700);
-    const o=await readPage({target:{tabId,allFrames:true},func:inspectUI,args:['option',false,STORE,IDX,value]});
-    const hit=o.filter(q=>q.result?.count===1);
-    if(hit.length===1) {
-      await pageScript({target:{tabId,frameIds:[hit[0].frameId]},func:inspectUI,args:['option',true,STORE,IDX,value]});
-      await wait(700);
-      const now=await readField(tabId,key);
-      if(now!==null && ProfileMatch.same(value,now,SAME_OPTS[key])) return {ok:true};
-    }
-    return {ok:false,reason:'could not pick "'+value+'" in the drop-down'};
+  if(!found) return {ok:false,reason:'field not found or ambiguous'};
+  const request=commit=>({target:{tabId,frameIds:[found.frameId]},func:inspectUI,args:['field:'+key,commit,STORE,IDX,value]});
+  const meta=(await readPage(request('meta')))[0]?.result||{};
+  if(meta.options) {
+    const matches=meta.options.filter(text=>ProfileMatch.same(value,text,SAME_OPTS[key]));
+    if(matches.length!==1) return {ok:false,reason:'No unique matching '+key+' in dropdown'};
+    const req=request('set');req.args[4]=matches[0];
+    const r=(await pageScript(req))[0]?.result||{};
+    await wait(500);
+    return {ok:!!r.set && ProfileMatch.same(value,await readField(tabId,key),SAME_OPTS[key]),reason:r.reason};
   }
-  return {ok:!!x.set,reason:x.reason||'could not set the field'};
+  const x=(await pageScript(request('set')))[0]?.result||{};
+  if(x.custom || meta.combobox) {
+    if(meta.editable && !x.set) await typeField(tabId,key,value);
+    await pageScript(request('open'));await wait(500);
+    const options=await readPage({target:{tabId,allFrames:true},func:inspectUI,args:['optionList',false,STORE,IDX]});
+    const hits=options.flatMap(frame=>(frame.result?.options||[]).filter(text=>ProfileMatch.same(value,text,SAME_OPTS[key])).map(text=>({frameId:frame.frameId,text})));
+    if(hits.length===1) {
+      await pageScript({target:{tabId,frameIds:[hits[0].frameId]},func:inspectUI,args:['option',true,STORE,IDX,hits[0].text]});
+    } else if(x.custom) return {ok:false,reason:'No unique matching '+key+' option for "'+value+'"'};
+  }
+  await wait(600);
+  const now=await readField(tabId,key);
+  return {ok:now!==null && ProfileMatch.same(value,now,SAME_OPTS[key]),reason:'The page did not retain '+key+' = '+value};
 }
 // Compare one field with the sheet and change it on screen when it differs. Nothing is saved here.
 async function detailStep(tabId,row,tg,key,pending,wanted) {
@@ -959,9 +971,90 @@ async function detailStep(tabId,row,tg,key,pending,wanted) {
   }
   if(ProfileMatch.same(want,cur,SAME_OPTS[key]) || (key==='admin' && ProfileMatch.compare(want,cur,{state:true})==='match')) {tg.detail[key]='ok';return;}
   let r=await setField(tabId,key,want);
-  if(!r.ok && key!=='admin') r=await typeField(tabId,key,want);
+  if(!r.ok) {
+    const found=await candidates(tabId,'field:'+key);
+    const meta=found?(await readPage({target:{tabId,frameIds:[found.frameId]},func:inspectUI,args:['field:'+key,'meta',STORE,IDX]}))[0]?.result:null;
+    if(meta?.editable) r=await typeField(tabId,key,want);
+  }
   if(!r.ok) {tg.detail[key]='failed';tg.notes[key]=r.reason;return;}
   tg.was[key]=cur;tg.detail[key]='pending';pending.push(key);
+}
+async function settleLocationFields(tabId,row,tg,pending,plan) {
+  const expected=[...(!plan.tooLong?['address','address2','address3'].map((key,i)=>({key,want:plan.lines[i]})):[]),
+    ...['admin','postal','locality'].map(key=>({key,want:String(row[key]??'').trim()}))];
+  // State/PIN may autofill city: enter city last, then check the complete draft again.
+  for(let pass=0;pass<2;pass++) {
+    await wait(900);
+    let changed=false;
+    for(const {key,want} of expected) {
+      if(!want && !['address2','address3'].includes(key)) continue;
+      if(tg.detail[key]==='updated') continue; // preserve prior confirmed submission history
+      const cur=await readField(tabId,key);
+      if(cur===null || ProfileMatch.same(want,cur,SAME_OPTS[key])) continue;
+      if(pending.includes(key)) pending.splice(pending.indexOf(key),1);
+      await detailStep(tabId,row,tg,key,pending,want);changed=true;
+    }
+    if(!changed) break;
+  }
+  for(const {key,want} of expected) {
+    if((!want && !['address2','address3'].includes(key)) || tg.detail[key]==='updated') continue;
+    const cur=await readField(tabId,key);
+    if(cur!==null && !ProfileMatch.same(want,cur,SAME_OPTS[key])) {
+      tg.detail[key]='failed';tg.notes[key]='The form reset this value before Save; check manually.';
+      const i=pending.indexOf(key);if(i>=0) pending.splice(i,1);
+    }
+  }
+}
+async function invalidatePin(rows,index,tg) {
+  tg.coordDone=false;delete tg.coordinates;
+  const {history={}}=await chrome.storage.local.get('history');delete history[rows[index].store];
+  await chrome.storage.local.set({batchRows:rows,history});
+}
+// The current-location button must receive the Excel position, not a cached device position.
+function probeGeolocation() {
+  return new Promise(resolve=>{
+    let finished=false;
+    const done=r=>{if(!finished){finished=true;clearTimeout(timer);resolve(r);}};
+    const timer=setTimeout(()=>done({ok:false,reason:'Location request timed out'}),5000);
+    if(!navigator.geolocation) {done({ok:false,reason:'Geolocation is unavailable'});return;}
+    navigator.geolocation.getCurrentPosition(p=>done({ok:true,latitude:p.coords.latitude,longitude:p.coords.longitude}),
+      e=>done({ok:false,reason:e.message||'Location permission denied'}),{maximumAge:0,timeout:4000,enableHighAccuracy:true});
+  });
+}
+async function prepareCoordinates(tabId,row) {
+  const error=RunPolicy.coordinateError(row);if(error) throw new Error(error);
+  GEO={latitude:row.latitude,longitude:row.longitude,accuracy:1};
+  await debugCommand({tabId},'Emulation.setGeolocationOverride',GEO);
+  const result=await pageScript({target:{tabId},func:probeGeolocation});
+  const position=result[0]?.result;
+  if(!position?.ok) throw new Error('Coordinates not applied: '+(position?.reason||'could not read emulated location')+'. Allow Location for Business Manager and resume this business.');
+  if(distanceMeters(row,position)>1) throw new Error('Chrome returned a different location from the Excel coordinates. No pin save attempted.');
+}
+async function draftCoordinates(tabId,row) {
+  const result=await readPage({target:{tabId,allFrames:true},func:inspectUI,args:['coordinatesRead',false,STORE,IDX]});
+  const hits=result.map(x=>x.result).filter(x=>x?.count===1 && Number.isFinite(x.latitude) && Number.isFinite(x.longitude));
+  if(hits.length!==1) return {status:'unconfirmed',note:'Draft coordinates are not exposed as unique numeric fields.'};
+  const distance=distanceMeters(row,hits[0]);
+  return {...hits[0],distance,status:distance<=2?'match':'mismatch'};
+}
+async function positionPin(tabId,row,ctx) {
+  await prepareCoordinates(tabId,row);
+  if(!await click(tabId,'adjust',5000) && !await candidates(tabId,'done')) throw new Error('Adjust map is not open.');
+  if(!await candidates(tabId,'done')) throw new Error('Adjust map is not open.');
+  if(!await click(tabId,'locate',5000)) throw new Error('Current-location control not found. No Save.');
+  await wait(2500);
+  // Mark the pin as edited, then re-center exactly. The final position is not the result of two approximate drags.
+  ctx.calibration=await nudge(tabId,ctx.calibration);
+  if(!await click(tabId,'locate',5000)) throw new Error('Could not re-center the pin after map activation. No Save.');
+  await wait(2500);
+  const draft=await draftCoordinates(tabId,row);
+  if(draft.status==='mismatch') throw new Error('Draft pin is '+draft.distance.toFixed(1)+' m from the Excel coordinates. No Save.');
+  await guard(tabId);
+  if(!await click(tabId,'done',5000)) throw new Error('Done button not found.');
+  await wait(1200);
+  const after=await draftCoordinates(tabId,row);
+  if(after.status==='mismatch') throw new Error('Location form retained a pin '+after.distance.toFixed(1)+' m away. No Save.');
+  return after.status==='match'?after:draft;
 }
 async function prepareLocationSave(tabId) {
   await pageScript({target:{tabId,allFrames:true},func:inspectUI,args:['prepareSave',false,STORE,IDX]});
@@ -991,7 +1084,7 @@ async function saveDetails(tabId,tg,pending,rows,index,allowPinCorrection=false)
   await guard(tabId);await ensureForeground(tabId);
   await prepareLocationSave(tabId);
   await patchRow(rows,index,{detailsReview:true});
-  if(!await clickSave(tabId)) {pending.forEach(k=>{tg.detail[k]='failed';tg.notes[k]='Save button not found';});throw new Error('Save button not found; nothing was saved. Close the editor, then resume.');}
+  if(!await clickSave(tabId)) {await patchRow(rows,index,{detailsReview:false});pending.forEach(k=>{tg.detail[k]='failed';tg.notes[k]='Save button not found';});throw new Error('Save button not found; nothing was saved. Close the editor, then resume.');}
   const r=await waitSaved(tabId,allowPinCorrection);
   if(r.needsPin) {
     await patchRow(rows,index,{detailsReview:false});
@@ -1006,6 +1099,7 @@ async function saveDetails(tabId,tg,pending,rows,index,allowPinCorrection=false)
 // One business: update details and/or coordinates. Returns 'done' or 'unopened'.
 async function processTarget(tabId,rows,index,t,exp,opts,ctx) {
   const row=rows[index],tg=row.targets[t],pending=[];
+  if(opts.coords && RunPolicy.coordinateError(row)) throw new Error(RunPolicy.coordinateError(row));
   const doDetails=opts.details && !RunPolicy.detailsSubmitted(tg);
   let doCoords=opts.coords && !tg.coordDone;
   if(!doDetails && !doCoords) return 'done';
@@ -1042,8 +1136,9 @@ async function processTarget(tabId,rows,index,t,exp,opts,ctx) {
     } else {
       for(const [i,key] of ['address','address2','address3'].entries()) await detailStep(tabId,row,tg,key,pending,plan.lines[i]);
     }
-    for(const key of ['locality','admin','postal']) await detailStep(tabId,row,tg,key,pending);
-<<<<<<< HEAD
+    for(const key of ['admin','postal','locality']) await detailStep(tabId,row,tg,key,pending);
+    await settleLocationFields(tabId,row,tg,pending,plan);
+    if(pending.length && opts.coords) {await invalidatePin(rows,index,tg);doCoords=true;}
     let needsPin=await addressNeedsPin(tabId);
     if(needsPin && opts.coords) {
       doCoords=true;tg.coordDone=false;
@@ -1055,7 +1150,13 @@ async function processTarget(tabId,rows,index,t,exp,opts,ctx) {
       const saved=await saveDetails(tabId,tg,pending,rows,index,opts.coords);
       if(opts.coords) {doCoords=true;tg.coordDone=false;}
       await patchRow(rows,index,{});
-      if(saved) {await wait(5000);editClicked=false;}
+      if(saved) {
+        await wait(2000);
+        await closeEditor(tabId);
+        if(!await openEditorFor(tabId,exp,t,false)) throw new Error('Could not reopen location after address Save. Resume this business to set its pin.');
+        if(!await click(tabId,'location',5000)) throw new Error('Location tab missing after address Save.');
+        editClicked=await click(tabId,'edit',5000);
+      }
       else {
         needsPin=true;
         tg.notes.address='Address save requires a pin correction. Setting Excel coordinates before submitting the address.';
@@ -1063,41 +1164,15 @@ async function processTarget(tabId,rows,index,t,exp,opts,ctx) {
       }
     }
     const bad=['address','address2','address3','locality','admin','postal'].filter(k=>['failed','notfound','review'].includes(tg.detail[k]));
-    if(bad.length && doCoords && !needsPin) throw new Error('Address fields not completed ('+bad.join(', ')+'). Coordinates were not changed.');
-=======
-    if(pending.length) {
-      await tell(STORE+': saving street address, city, state and PIN before setting the pin…');
-      await saveDetails(tabId,tg,pending,rows,index);
-      // An address save may move a pin that was completed in an earlier run.
-      // Reapply once for this new address submission, never for a stale check.
-      if(opts.coords) {doCoords=true;tg.coordDone=false;}
-      await patchRow(rows,index,{});
-      await wait(5000); // Allow the address-driven map repositioning to finish first.
-      editClicked=false;
-    }
-    const bad=['address','address2','address3','locality','admin','postal'].filter(k=>['failed','notfound','review'].includes(tg.detail[k]));
-    if(bad.length && doCoords) throw new Error('Address fields not completed ('+bad.join(', ')+'). Coordinates were not changed.');
->>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
+    if(bad.length) tg.diag='Some details could not be applied: '+bad.join(', ')+'. Coordinate update continues; see field results.';
   }
 
   if(doCoords) {
-    await debugCommand({tabId},'Emulation.setGeolocationOverride',GEO);
     await tell(`${STORE}: setting ${row.latitude}, ${row.longitude}…`);
-<<<<<<< HEAD
     if(!editClicked && !await candidates(tabId,'adjust')) {
-=======
-    if(!editClicked) {
->>>>>>> 96ab99caa544b356778a1c7e6e5093fb0b2ee39f
-      await click(tabId,'location',5000);
-      editClicked=await click(tabId,'edit',5000);
+      await click(tabId,'location',5000);editClicked=await click(tabId,'edit',5000);
     }
-    await click(tabId,'adjust',5000);
-    if(!await candidates(tabId,'done')) throw new Error('Adjust map is not open.');
-    if(!await click(tabId,'locate',5000)) throw new Error('Current-location control not found. No Save.');
-    await wait(5000);
-    ctx.calibration=await nudge(tabId,ctx.calibration);
-    await guard(tabId);
-    if(!await click(tabId,'done',5000)) throw new Error('Done button not found.');
+    tg.draftCoordinates=await positionPin(tabId,row,ctx);
     await wait(1000);await guard(tabId);await ensureForeground(tabId);
     await prepareLocationSave(tabId);
     if(await candidates(tabId,'done') || !await candidates(tabId,'save')) throw new Error('Save stage could not be confirmed.');
@@ -1106,6 +1181,7 @@ async function processTarget(tabId,rows,index,t,exp,opts,ctx) {
     await setRow(rows,index,'saving');
     if(!await clickSave(tabId)) {
       pending.forEach(k=>{tg.detail[k]='failed';tg.notes[k]='Save button not found';});
+      await patchRow(rows,index,{detailsReview:false});
       await setRow(rows,index,'error',{error:'Save button not found; nothing was clicked. Safe to retry.'});
       throw new Error('Save button not found; nothing was clicked. Close the editor, then resume.');
     }
